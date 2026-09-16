@@ -4,7 +4,7 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.14.0 (build 22).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.15.0 (build 23).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 ## Features
 
@@ -23,7 +23,13 @@ Native macOS font browsing, previews, and organization, built with SwiftUI, AppK
 - Recursive watched folders refreshed every three seconds while open, with opt-in temporary activation for other apps using original files. No copying into system font folders.
 - Daily local state backups and merge-based backup import. Folder access permissions must be granted separately.
 
-This is not complete Typeface feature parity. Direct Adobe/Figma plug-ins, document-triggered activation and cloud team collaboration are not implemented. Session activation is verified in the local development build; App Store sandbox verification remains outstanding.
+Spaces is a separate workspace with its own project/typeboard sidebar. Its resizable inspector includes alignment, kerning, exact line height, tracking, paragraph/word spacing, indents, case and decorations. Drag sections in the arrangement list or directly on the canvas. Choose an A/B partner with the same format and width, then use **Swap A/B** (Command-backslash). Fit zoom adapts to panel resizing.
+
+Search accepts `#tag`, `#!tag`, and quoted names such as `#"Client Work"`. Typing `#` opens tag and font-property suggestions. Built-ins include `#fontshelf/active`, `#fontshelf/user`, `#fontshelf/bold`, `#fontshelf/italic`, and `#fontshelf/feature/tnum`; `#typeface/` is accepted as an alias. Tokens combine with AND and match the same style. A parent tag includes its descendants. Removable search chips show active filters.
+
+**Figma handoff:** In a typeboard's menu choose **Export editable Figma layout…**. The package includes all directions as layout JSON and a local, network-free Figma importer. Follow the bundled README. Fonts must be available to Figma. The importer creates editable text/shapes, reports fallback fonts, and retains unsupported settings as metadata. It is not live sync; text wrapping can differ. See [importer instructions](Resources/FigmaImport/README.md).
+
+This is not complete Typeface feature parity. Direct Adobe integration, a published Figma plug-in, document-triggered activation and cloud team collaboration are not implemented. Session activation is verified in the local development build; App Store sandbox verification remains outstanding.
 
 ## Build and run
 

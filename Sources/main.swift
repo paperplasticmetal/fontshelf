@@ -117,7 +117,8 @@ final class Library: ObservableObject {
     var autoActivatedStamps: [String: FontFileStamp] = [:]
     lazy var studio = StudioStore(url: saveURL.deletingLastPathComponent().appendingPathComponent("spaces.json"))
     func pairSelection(_ names: [String]) {
-        let space = studio.state.spaces.first(where: { $0.name == "Pairing Studio" })?.id ?? studio.addSpace("Pairing Studio")
+        let active = workspace ? studio.state.spaces.first(where: { $0.id == studio.focusedSpace })?.id : nil
+        let space = active ?? studio.state.spaces.first(where: { $0.name == "Pairing Studio" })?.id ?? studio.addSpace("Pairing Studio")
         _ = studio.addBoard(space: space, fonts: names)
         workspace = true
     }
@@ -199,8 +200,9 @@ final class Library: ObservableObject {
     @Published var overlayName = ""
     @Published var showCompare = false
     func chosenFace(_ family: Family) -> Face {
+        let query = FontSearchQuery(search)
         let matching = family.faces.filter { face in
-            (writing == nil || face.writingSystems.contains(writing!)) && (!requireCoverage || FontCoverage.missing(requiredText, in: face.coverage).isEmpty) && advanced.matches(face, tags: pro.tags[face.name] ?? [])
+            (writing == nil || face.writingSystems.contains(writing!)) && (!requireCoverage || FontCoverage.missing(requiredText, in: face.coverage).isEmpty) && advanced.matches(face, tags: pro.tags[face.name] ?? []) && query.matches(face, tags: pro.tags[face.name] ?? []) && (query.text.isEmpty || family.name.localizedCaseInsensitiveContains(query.text) || face.name.localizedCaseInsensitiveContains(query.text) || face.style.localizedCaseInsensitiveContains(query.text))
         }
         return matching.first(where: { $0.name == pro.mainPreviews[family.name] }) ?? matching.first(where: { $0.name == family.representative.name }) ?? matching.first ?? family.representative
     }
@@ -245,7 +247,12 @@ final class Library: ObservableObject {
             catch { folderStatus = error.localizedDescription }
         }
         let accessibleFolders = folders
+        let showInstalledFirst = originalFamilies.isEmpty
         DispatchQueue.global(qos: .userInitiated).async {
+            if showInstalledFirst {
+                let installed = FontCatalog.scan()
+                DispatchQueue.main.async { self.originalFamilies = installed; self.regroup() }
+            }
             if register { FontCatalog.reconcileFolders(accessibleFolders) }
             let result = FontCatalog.scan()
             DispatchQueue.main.async { self.acceptCatalog(result); self.applyFolderActivation(); if self.folderStatus == "Changes detected; refreshing…" { self.folderStatus = "Up to date" }; self.finishLoading() }
@@ -270,9 +277,10 @@ final class Library: ObservableObject {
         return category(f).rawValue == section
     }
     var filtered: [Family] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed = FontSearchQuery(search)
+        let query = parsed.text
         let result = families.filter { f in
-            matchesSection(f, selection) && tagQuery.matches(tags(f)) && f.faces.contains { face in (writing == nil || face.writingSystems.contains(writing!)) && (!requireCoverage || FontCoverage.missing(requiredText, in: face.coverage).isEmpty) && advanced.matches(face, tags: pro.tags[face.name] ?? []) } && (query.isEmpty || f.name.localizedCaseInsensitiveContains(query) || f.faces.contains { $0.name.localizedCaseInsensitiveContains(query) || $0.style.localizedCaseInsensitiveContains(query) }) && (!variableOnly || f.variable) && (source == "All sources" || (source == "User / third-party" ? f.userFont : !f.userFont))
+            matchesSection(f, selection) && tagQuery.matches(tags(f)) && f.faces.contains { face in (writing == nil || face.writingSystems.contains(writing!)) && (!requireCoverage || FontCoverage.missing(requiredText, in: face.coverage).isEmpty) && advanced.matches(face, tags: pro.tags[face.name] ?? []) && parsed.matches(face, tags: pro.tags[face.name] ?? []) && (query.isEmpty || f.name.localizedCaseInsensitiveContains(query) || face.name.localizedCaseInsensitiveContains(query) || face.style.localizedCaseInsensitiveContains(query)) } && (!variableOnly || f.variable) && (source == "All sources" || (source == "User / third-party" ? f.userFont : !f.userFont))
         }
         return result.sorted { a,b in
             if sort == "Most styles", a.faces.count != b.faces.count { return a.faces.count > b.faces.count }
@@ -342,7 +350,7 @@ struct ContentView: View {
     @FocusState private var searchFocused: Bool
     var body: some View {
         HStack(spacing: 12) {
-            sidebar.frame(width: 232).environment(\.shelfInsideGlass, true).modifier(ShelfSidebarGlass()).padding(.leading, 12).padding(.vertical, 12)
+            if !library.workspace { sidebar.frame(width: 232).environment(\.shelfInsideGlass, true).modifier(ShelfSidebarGlass()).padding(.leading, 12).padding(.vertical, 12) }
             if library.workspace {
                 StudioView(library: library, store: library.studio)
             } else { VStack(spacing: 0) {
@@ -384,6 +392,7 @@ struct ContentView: View {
     var topControls: some View {
         VStack(spacing: 0) {
                 header
+                SearchTokenChips(library: library).padding(.horizontal, 20)
                 VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     Image(systemName: "text.cursor").foregroundStyle(.secondary)
@@ -449,7 +458,7 @@ struct ContentView: View {
         }
     }
     @ViewBuilder var libraryContent: some View {
-                if library.loading { ProgressView("Reading your fonts…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+                if library.loading && library.families.isEmpty { ProgressView("Reading your fonts…").frame(maxWidth: .infinity, maxHeight: .infinity) }
                 else if metadataView { MetadataTable(library: library) }
                 else if library.filtered.isEmpty {
                     VStack(spacing: 12) { Image(systemName: "text.magnifyingglass").font(.system(size: 38)).foregroundStyle(.secondary); Text(library.selection == "Last Import" && library.saved.lastImportNames == nil ? "No imports yet" : "No matching fonts").font(.title2); Text(library.selection == "Last Import" && library.saved.lastImportNames == nil ? "Your next font-folder import or Google Fonts download will appear here." : "Try a different search or filter, or add fonts to this collection.").foregroundStyle(.secondary)
@@ -484,10 +493,9 @@ struct ContentView: View {
     var sidebar: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) { Text("Ff").font(.custom("Georgia", size: 30)).foregroundStyle(ShelfPalette.ink); VStack(alignment: .leading, spacing: 2) { Text("FontShelf").font(.headline);  } }.padding(.horizontal, 14).padding(.top, 22).padding(.bottom, 23)
+            WorkspaceSwitcher(library: library).padding(.horizontal, 12).padding(.bottom, 12)
             ScrollView { VStack(alignment: .leading, spacing: 6) {
             sectionLabel("LIBRARY")
-            Button { library.workspace = true } label: { HStack { Image(systemName: "rectangle.3.group").frame(width: 20); Text("Spaces"); Spacer() }.padding(.horizontal, 10).padding(.vertical, 9).contentShape(Rectangle()) }.buttonStyle(.plain).background(library.workspace ? Color.accentColor.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 8)
-            Button { library.pairSelection(library.compared.map { library.chosenFace($0).name }) } label: { Label("New pairing", systemImage: "textformat.abc").padding(.horizontal, 18).padding(.vertical, 8) }.buttonStyle(.plain)
             nav("All Fonts", icon: "square.stack.3d.up", key: "All Fonts")
             nav("Last Import", icon: "clock.arrow.circlepath", key: "Last Import")
             nav("Favorites", icon: "star", key: "Favorites")
@@ -554,6 +562,7 @@ struct ContentView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) { Text(library.selection.replacingOccurrences(of: "collection:", with: "").replacingOccurrences(of: "tag:", with: "")).font(.system(size: 25, weight: .semibold)) }
             Spacer()
+            Button { library.pairSelection(library.compared.map { library.chosenFace($0).name }) } label: { Image(systemName: "text.badge.plus") }.help("New pairing")
             Button { library.showAdvanced.toggle() } label: { Image(systemName: library.advanced.active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Advanced filters").popover(isPresented: $library.showAdvanced) { AdvancedFiltersView(library: library) }
             Button { showColors.toggle() } label: { Image(systemName: "paintpalette") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Preview colors").popover(isPresented: $showColors) { PreviewColorsView() }
             Menu("Tools") {
@@ -565,7 +574,7 @@ struct ContentView: View {
                 Button("Show automatic backups") { NSWorkspace.shared.open(library.saveURL.deletingLastPathComponent().appendingPathComponent("Backups")) }
                 Button("Select visible families") { library.selectedFamilies.formUnion(library.filtered.map(\.name)) }
             }.menuStyle(.borderlessButton).foregroundStyle(Color.primary).padding(8).shelfGlass(radius: 16).frame(width: 85)
-            HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Search fonts & styles", text: $library.search).textFieldStyle(.plain).focused($searchFocused); if !library.search.isEmpty { Button { library.search = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain) } }.padding(9).background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)).frame(width: 240)
+            LibrarySearchView(library: library).focused($searchFocused).frame(minWidth: 220, idealWidth: 290, maxWidth: 350)
         }.padding(.horizontal, 20).padding(.vertical, 18)
     }
     func rowBaseline(_ families: [Family]) -> Double {

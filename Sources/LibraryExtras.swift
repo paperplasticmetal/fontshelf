@@ -136,3 +136,34 @@ struct WaterfallView: View {
         }
     }
 }
+
+enum FigmaLayoutExporter {
+    static func color(_ color: NSColor) -> [String: Double] {
+        let c = color.usingColorSpace(.sRGB) ?? .black
+        return ["r": c.redComponent, "g": c.greenComponent, "b": c.blueComponent, "a": c.alphaComponent]
+    }
+    static func payload(board: TypeBoard) -> [String: Any] {
+        let frames: [[String: Any]] = board.directions.map { direction in
+            let plan = CanvasPlan(direction: direction)
+            let elements: [[String: Any]] = plan.elements.map { item in
+                var object: [String: Any] = ["x": item.rect.minX, "y": item.rect.minY, "width": item.rect.width, "height": item.rect.height, "section": plan.sections.first { $0.id == item.sectionID }?.title ?? "Section"]
+                if let text = item.text, let style = item.style {
+                    let font = style.font
+                    var axes: [String: Double] = [:]
+                    for (key, value) in style.axes { axes[String(bytes: [UInt8((key >> 24) & 255), UInt8((key >> 16) & 255), UInt8((key >> 8) & 255), UInt8(key & 255)], encoding: .ascii) ?? ""] = value }
+                    object.merge(["kind": "text", "text": text.string, "role": item.role?.rawValue ?? "Text", "fontFamily": CTFontCopyFamilyName(font) as String, "fontStyle": CTFontCopyName(font, kCTFontStyleNameKey) as String? ?? "Regular", "fontName": style.fontName, "fontSize": style.size, "lineHeight": style.lineHeight ?? style.size * style.leading, "letterSpacing": style.tracking, "paragraphSpacing": style.paragraphSpacing ?? 0, "paragraphIndent": style.indent ?? 0, "wordSpacing": style.wordSpacing ?? 0, "alignment": (style.alignment ?? .left).rawValue.uppercased(), "underline": style.underline ?? false, "strikethrough": style.strikethrough ?? false, "kerning": style.kerning ?? true, "features": style.features, "axes": axes, "color": color((text.length > 0 ? text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor : nil) ?? NSColor(hex: direction.ink))]) { _, new in new }
+                } else { object["kind"] = "rectangle"; object["color"] = color(item.color ?? .clear); object["radius"] = item.radius }
+                return object
+            }
+            return ["name": direction.name, "width": plan.size.width, "height": plan.size.height, "paper": color(plan.paper), "elements": elements]
+        }
+        return ["format": "fontshelf-figma", "version": 1, "name": board.name, "frames": frames]
+    }
+    static func write(board: TypeBoard, parent: URL) throws -> URL {
+        guard let resources = Bundle.main.resourceURL?.appendingPathComponent("FigmaImport"), FileManager.default.fileExists(atPath: resources.appendingPathComponent("code.js").path) else { throw NSError(domain: "FontShelf", code: 1, userInfo: [NSLocalizedDescriptionKey: "The Figma importer is missing from this build."]) }
+        let folder = parent.appendingPathComponent("FontShelf-Figma-" + UUID().uuidString.prefix(8))
+        try FileManager.default.copyItem(at: resources, to: folder)
+        try JSONSerialization.data(withJSONObject: payload(board: board), options: [.prettyPrinted, .sortedKeys]).write(to: folder.appendingPathComponent("layout.fontshelf.json"), options: .atomic)
+        return folder
+    }
+}

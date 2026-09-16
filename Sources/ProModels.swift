@@ -17,10 +17,23 @@ struct FontFacts {
     let glyphCount: Int
     let foundry: String
     let features: [String]
+    let widthClass: Int
+    let xHeightRatio: Double
+    let variable: Bool
+    let color: Bool
+    let bitmap: Bool
+    let monospace: Bool
     static func read(_ font: CTFont) -> FontFacts {
         var weight = 400
         if let data = CTFontCopyTable(font, 0x4f532f32, []) as Data?, data.count > 5 { let value = Int(data[4]) * 256 + Int(data[5]); weight = (1...1000).contains(value) ? value : 400 }
-        return FontFacts(weight: weight, italic: CTFontGetSymbolicTraits(font).contains(.traitItalic), glyphCount: CTFontGetGlyphCount(font), foundry: CTFontCopyName(font, kCTFontManufacturerNameKey) as String? ?? "", features: OpenType.tags(font))
+        let table = CTFontCopyTable(font, 0x4f532f32, []) as Data?
+        let width = table.flatMap { OpenType.u16($0, 6) } ?? 5
+        // Core Text stores raw table tags in this CFArray, not Objective-C objects.
+        var tables = Set<UInt32>()
+        if let available = CTFontCopyAvailableTables(font, []) {
+            for index in 0..<CFArrayGetCount(available) { tables.insert(UInt32(truncatingIfNeeded: UInt(bitPattern: CFArrayGetValueAtIndex(available, index)))) }
+        }
+        return FontFacts(weight: weight, italic: CTFontGetSymbolicTraits(font).contains(.traitItalic), glyphCount: CTFontGetGlyphCount(font), foundry: CTFontCopyName(font, kCTFontManufacturerNameKey) as String? ?? "", features: OpenType.tags(font), widthClass: width, xHeightRatio: CTFontGetXHeight(font) / max(1, CTFontGetSize(font)), variable: !(CTFontCopyVariationAxes(font) as? [Any] ?? []).isEmpty, color: !tables.isDisjoint(with: [0x434F4C52, 0x43424454, 0x73626978, 0x53564720]), bitmap: !tables.isDisjoint(with: [0x45424454, 0x43424454, 0x73626978]), monospace: CTFontGetSymbolicTraits(font).contains(.traitMonoSpace))
     }
 }
 enum OpenType {

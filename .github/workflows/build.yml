@@ -21,6 +21,8 @@ jobs:
         run: ./build.sh
       - name: Verify local signature
         run: codesign --verify --deep --strict dist/FontShelf.app
+      - name: Figma importer contract tests
+        run: node tests/figma-import.test.js
       - name: Archive Store target without distribution signing
         run: >-
           xcodebuild -project FontShelf.xcodeproj -scheme FontShelf

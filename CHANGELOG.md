@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.0 — 2026-09-16
+
+- Separated Library and Spaces into peer workspaces. Every space and typeboard is directly available in the Spaces sidebar; New pairing lives in the toolbar.
+- Added resizable typography/canvas panels, fit-to-width previews, compact role controls and a larger searchable font chooser with actual font previews.
+- Added numeric size, line height and spacing controls; alignment, font kerning, word/paragraph spacing, indents, case and decorations. Existing saved typography remains readable.
+- Added draggable sections in template and custom canvases, arrangement-list drag ordering, removal/restoration and additional text blocks.
+- Added quick A/B switching for directions with matching canvas type and width, alongside side-by-side comparison.
+- Added #tag / #!tag search suggestions, removable chips and property filters for activation, source, weight, width, slant, x-height, variable/color/bitmap/monospaced fonts, scripts and OpenType support. Typeface-style built-in prefixes are accepted as aliases.
+- Added editable Figma export packages with a network-free local importer. Text-rendering differences and unsupported typography settings are explicitly reported; no font files are bundled.
+- Made installed fonts available before watched-folder scanning completes, so a slow folder does not leave the library or font picker empty.
+
 ## 0.14.0 — 2026-09-16
 
 - Added Spaces, pairing typeboards, independently saved directions, checkpoints and side-by-side comparisons.

@@ -57,6 +57,14 @@ enum StudioChecks {
         duplicate.styles[TypeRole.body.rawValue]!.axes = [2003265652: 520]
         duplicate.styles[TypeRole.body.rawValue]!.features = ["liga": 0]
         duplicate.notes = "Saved design decision"
+        duplicate.styles[TypeRole.body.rawValue]!.alignment = .right
+        duplicate.styles[TypeRole.body.rawValue]!.kerning = false
+        duplicate.styles[TypeRole.body.rawValue]!.lineHeight = 32
+        duplicate.styles[TypeRole.body.rawValue]!.wordSpacing = 3
+        duplicate.styles[TypeRole.body.rawValue]!.paragraphSpacing = 12
+        duplicate.styles[TypeRole.body.rawValue]!.indent = 20
+        duplicate.styles[TypeRole.body.rawValue]!.casing = .upper
+        duplicate.styles[TypeRole.body.rawValue]!.underline = true
         duplicate.canvas = .custom
         duplicate.blocks = [.heading, .body, .caption]
         board.checkpoints = [DirectionCheckpoint(direction: duplicate)]
@@ -67,6 +75,7 @@ enum StudioChecks {
         try verify(restoredBoard.directions.count == 2 && restoredBoard.selectedDirection == duplicate.id)
         try verify(restoredBoard.directions[0].style(.body).fontName == "Helvetica")
         try verify(restoredBoard.directions[1] == duplicate, "Direction settings were lost on reload")
+        try verify(restored.focusedSpace == space && restored.focusedBoard == boardID, "Selected workspace was lost on reload")
         try verify(restoredBoard.checkpoints?.first?.direction == duplicate, "Checkpoint settings were lost on reload")
         let corruptURL = root.appendingPathComponent("corrupt.json"), corrupt = Data("broken".utf8)
         try corrupt.write(to: corruptURL)
@@ -76,6 +85,26 @@ enum StudioChecks {
         let unchanged = try Data(contentsOf: corruptURL); try verify(unchanged == corrupt)
         var invalid = duplicate; invalid.width = -1
         try verify(!invalid.isValid)
+        var invalidText = duplicate; invalidText.styles[TypeRole.body.rawValue]!.lineHeight = -4
+        try verify(!invalidText.isValid)
+        let legacyStyle = Data(#"{"fontName":"Helvetica","size":18,"leading":1.35,"tracking":0,"axes":{},"features":{},"text":"Legacy document"}"#.utf8)
+        let legacy = try JSONDecoder().decode(TypeStyle.self, from: legacyStyle)
+        try verify(legacy.alignment == nil && legacy.lineHeight == nil, "Legacy typography failed to decode")
+        let styled = duplicate.style(.body).attributed("One two\nThree", color: .black)
+        try verify(styled.string == "ONE TWO\nTHREE")
+        let paragraph = styled.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle
+        try verify(paragraph.alignment == .right && paragraph.minimumLineHeight == 32 && paragraph.paragraphSpacing == 12 && paragraph.firstLineHeadIndent == 20)
+        try verify(styled.attribute(.kern, at: 3, effectiveRange: nil) as? Double == 3)
+        let parsedSearch = FontSearchQuery("Helvetica #\"Client Work/Approved\" #!fontshelf/italic")
+        try verify(parsedSearch.text == "Helvetica" && parsedSearch.tokens.count == 2)
+        let regular = catalog.flatMap(\.faces).first { $0.name == "Helvetica" }!
+        try verify(parsedSearch.matches(regular, tags: ["Client Work/Approved"]))
+        try verify(!FontSearchQuery("#!\"Client Work\"").matches(regular, tags: ["Client Work/Approved"]))
+        try verify(FontSearchQuery("#fontshelf/regular #typeface/upright").matches(regular, tags: []))
+        try verify(!FontSearchQuery("#fontshelf/italic #fontshelf/upright").matches(regular, tags: []))
+        try verify(FontSearchQuery.token("Client Work", excluded: true) == "#!\"Client Work\"")
+        try verify(FontSearchQuery.removing("#tag", from: "#tag #tagged") == "#tagged", "Removing a token changed a different token")
+        if let emoji = catalog.flatMap(\.faces).first(where: { $0.name == "AppleColorEmoji" }) { try verify(emoji.facts.color && FontSearchQuery("#fontshelf/color").matches(emoji, tags: [])) }
         var query = TagQuery(included: ["Client", "Editorial"], excluded: ["Client/Archived"], matchAll: true)
         try verify(query.matches(["Client/Current", "Editorial"]))
         try verify(!query.matches(["Client/Archived", "Editorial"]))
@@ -111,8 +140,24 @@ enum StudioChecks {
                 try verify(plan.size.height.isFinite && plan.size.width == width)
                 try verify(plan.elements.allSatisfy { $0.rect.minX >= 0 && $0.rect.maxX <= width + 1 && $0.rect.minY >= 0 && $0.rect.maxY <= plan.size.height }, "Canvas clipped content")
                 plans += 1
+                if let first = plan.sections.first, let last = plan.sections.last, first.id != last.id {
+                    d.reorder(first.id, target: last.id, before: false, visible: plan.sections.map(\.id))
+                    let reordered = CanvasPlan(direction: d)
+                    try verify(reordered.sections.last?.id == first.id && reordered.elements.count == plan.elements.count)
+                    try verify(reordered.elements.allSatisfy { $0.rect.minY >= 0 && $0.rect.maxY <= reordered.size.height }, "Reorder clipped content")
+                    d.hiddenSections = [last.id]
+                    try verify(!CanvasPlan(direction: d).elements.contains { $0.sectionID == last.id })
+                    d.hiddenSections = nil
+                    try verify(CanvasPlan(direction: d).elements.count == plan.elements.count)
+                }
             }
         }
+        let figmaData = try JSONSerialization.data(withJSONObject: FigmaLayoutExporter.payload(board: board))
+        let figma = try JSONSerialization.jsonObject(with: figmaData) as! [String: Any]
+        try verify(figma["format"] as? String == "fontshelf-figma" && (figma["frames"] as? [[String: Any]])?.count == 2)
+        let frames = figma["frames"] as! [[String: Any]]
+        let bodyLayer = (frames[1]["elements"] as! [[String: Any]]).first { $0["role"] as? String == TypeRole.body.rawValue }!
+        try verify(bodyLayer["alignment"] as? String == "RIGHT" && bodyLayer["lineHeight"] as? Double == 32)
         let library = Library(storageURL: root.appendingPathComponent("library-state/library.json")); library.acceptCatalog(catalog)
         let sample = catalog.flatMap(\.faces).first { $0.name == "Helvetica" }!
         let pdf = SpecimenExporter.data(faces: [sample], library: library, sample: "Hamburgefontsiv 0123456789")
@@ -125,6 +170,6 @@ enum StudioChecks {
         try verify(library.saved.collections["Keep"] == [catalog[0].name])
         try verify(library.studio.state.spaces[0].id != store.state.spaces[0].id)
         try verify(FileManager.default.fileExists(atPath: root.appendingPathComponent("Backups").path))
-        print("PASS: independent directions and relaunch persistence, corrupt workspace preservation, nested AND/OR/NOT tags, recursive folder changes, Unicode lookup/SVG, \(plans) responsive canvases, specimen PDF and backup merge.")
+        print("PASS: typography and legacy decoding, section reorder/removal, Figma layout payload, search tokens, independent directions and relaunch persistence, corrupt workspace preservation, nested AND/OR/NOT tags, recursive folder changes, Unicode lookup/SVG, \(plans) responsive canvases, specimen PDF and backup merge.")
     }
 }

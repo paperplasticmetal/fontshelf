@@ -8,7 +8,7 @@ Tested on macOS 26.3, Apple Silicon, September 16, 2026. These checks cover the 
 - Exported a selected Figma frame to JSON through the live plugin, saved it and imported it through FontShelf's file picker. Verified the original layout, text layers, Georgia headline and Helvetica body styles.
 - Edited the imported headline to “From Figma, now editable.” directly in FontShelf. Dragged it on the canvas and verified Undo returned it to its original position.
 - Deleted the imported test typeboard using its sidebar trash action and confirmation. Verified Cmd-Z restored the board, selection and edited text.
-- Verified the space title no longer clips and Export/overflow controls no longer touch at the tested desktop width.
+- Verified the space title no longer clips and Export/overflow controls no longer touch at both tested wide and narrower desktop widths. The enlarged font chooser remains opaque over the canvas and focuses search on opening.
 - Verified native canvas section reordering, insertion at beginning/end, Undo/Redo, section removal/restoration, font searching, empty search results, font selection and font Undo.
 - Verified the inspector divider width persists after relaunch.
 - Verified imported text edits survive relaunch, native Arrangement-list drag ordering and Undo, Quick A/B selection and Cmd-backslash switching, and full numeric size-edit Undo/Redo after correcting native field-editor routing.

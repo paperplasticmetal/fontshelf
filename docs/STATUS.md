@@ -1,18 +1,18 @@
 # Build and verification status
 
-Current source: **0.15.0, build 23**. Updated 2026-09-16.
+Current source: **0.16.0, build 24**. Updated 2026-09-16.
 
 | Check | Status |
 | --- | --- |
 | Local optimized Apple Silicon build, Swift warnings as errors | Passed |
 | Built-in regression suite | Passed |
 | Layout checks | 2,640 cases across 528 available styles on the audit machine |
-| Xcode Release build, 0.15.0 | Passed |
-| Spaces and canvas regression checks | Passed: independent directions, checkpoints, persistence and 24 canvas/viewport combinations |
+| Xcode Release build, 0.16.0 | Passed |
+| Spaces and canvas regression checks | Passed: independent directions, checkpoints, imported layers, persistence and 28 canvas/viewport combinations |
 | Live folder watcher and session activation | Passed with a temporary copy of an existing Google font; visibility checked in a separate process, then deactivated and removed |
 | New designer UI | Website desktop/mobile comparison and Unicode lookup/metrics inspected locally |
-| 0.15 interaction checks | Workspace navigation, search include/exclude tokens, sidebar drag ordering and split-panel resizing verified; Mac locked before final native-canvas drag and A/B checks |
-| Figma importer | Mocked API tests cover editable text, typography, missing fonts, validation and rollback; live Figma editor verification pending |
+| 0.16 interaction checks | Native canvas/sidebar dragging, Quick A/B, typeboard sidebar deletion/Undo, numeric Undo/Redo, saved divider width, opaque font chooser and header/toolbar spacing verified; see INTERACTION_AUDIT.md |
+| Figma bridge | Mocked API suite passed; live outbound editable frames and reverse selected-frame JSON import verified, including editing, movement/Undo and relaunch persistence |
 | Unsigned archive and asset catalog, 0.12.3 | Passed; archive not checked into source |
 | Sandbox/hardened-runtime clean launch and installed-font export, 0.12.3 | Passed |
 | Google preview UI, 0.13.1 | Installed and remotely loaded samples verified |
@@ -27,6 +27,6 @@ Manual checks do not certify every font/script or failure case. Offline preview 
 
 The live activation check requires normal macOS execution outside the coding-tool sandbox. Session activation in the App Store sandbox has not been verified for 0.14.0. Watching runs only while the app is open. New tests also cover recursive folder replacements/removal, nested tag inclusion/exclusion, glyph SVG generation, long specimen pagination and backup merge. Test-runner crashes encountered during development were corrected; new studio checks report failures without intentionally trapping.
 
-Not complete Typeface parity: direct Adobe integration, a published Figma plug-in, document-triggered activation, cloud collaboration and advanced color-font controls remain out of scope for this release. The local Figma importer is a one-way handoff with documented typography limitations. Custom canvases are ordered text blocks, not a freeform design editor.
+Not complete Typeface parity: direct Adobe integration, a published Figma plug-in, document-triggered activation, cloud collaboration and advanced color-font controls remain out of scope for this release. The local Figma bridge supports two-way JSON handoff with documented fidelity limits, not native `.fig` decoding or live sync. Custom template canvases use ordered blocks; imported Figma layouts retain independently movable layers.
 
 Local bundles are ad-hoc signed. They are not notarized downloads and are not App Store packages. A passing CI run does not guarantee App Review approval.

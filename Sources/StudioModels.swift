@@ -70,7 +70,8 @@ struct TypeDirection: Codable, Identifiable, Equatable {
     var hiddenSections: Set<String>?
     var importedLayout: ImportedLayout?
     var importWarnings: [String]?
-    init(name: String = "Direction A", fonts: [String] = []) {
+    var textOverrides: [String: String]?
+    init(name: String = "Canvas 1", fonts: [String] = []) {
         self.name = name
         for role in TypeRole.allCases {
             let fallback = role == .mono ? "Menlo-Regular" : role == .display || role == .heading ? "Georgia" : "Helvetica"
@@ -117,6 +118,11 @@ struct TypeBoard: Codable, Identifiable, Equatable {
     var selectedDirection: UUID?
     var candidates: [String] = []
     var checkpoints: [DirectionCheckpoint]?
+    func canvasName(_ canvas: TypeDirection) -> String {
+        if canvas.name.range(of: #"^Direction [A-Z]( copy)*$"#, options: .regularExpression) != nil { return "Canvas \((directions.firstIndex { $0.id == canvas.id } ?? 0) + 1)" }
+        return canvas.name
+    }
+    var nextCanvasName: String { var number = directions.count + 1; while directions.contains(where: { canvasName($0) == "Canvas \(number)" }) { number += 1 }; return "Canvas \(number)" }
     var isValid: Bool { !directions.isEmpty && directions.allSatisfy(\.isValid) && (checkpoints ?? []).allSatisfy { $0.direction.isValid } }
 }
 struct DirectionCheckpoint: Codable, Identifiable, Equatable {
@@ -128,6 +134,7 @@ struct DesignSpace: Codable, Identifiable {
     var id = UUID()
     var name = "Untitled space"
     var boards: [TypeBoard] = []
+    var displayName: String { name == "Pairing Studio" ? "My projects" : name }
 }
 struct StudioState: Codable {
     var version = 1
@@ -175,7 +182,9 @@ final class StudioStore: ObservableObject {
     }
     func addBoard(space: UUID, fonts: [String] = []) -> UUID? {
         guard let i = state.spaces.firstIndex(where: { $0.id == space }) else { return nil }
-        let board = TypeBoard(name: "Typeboard \(state.spaces[i].boards.count + 1)", directions: [TypeDirection(fonts: fonts)], candidates: fonts)
+        var number = state.spaces[i].boards.count + 1
+        while state.spaces[i].boards.contains(where: { $0.name == "Typeboard \(number)" }) { number += 1 }
+        let board = TypeBoard(name: "Typeboard \(number)", directions: [TypeDirection(fonts: fonts)], candidates: fonts)
         state.spaces[i].boards.append(board); focusedSpace = space; focusedBoard = board.id; save(); return board.id
     }
     func update(space: UUID, board: TypeBoard, action: String = "Edit Typeboard") {

@@ -4,7 +4,11 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.16.0 (build 24).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.17.0 (build 25).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+
+Spaces contain typeboards, and typeboards contain canvases. Canvas tabs switch what you edit; **Show all canvases** displays them together. **Add canvas** creates a blank canvas or duplicates the current one. Click text on the active canvas to edit that exact content and its shared type role. The font chooser includes collections, favorites, categories (including your overrides), and #tag search. Pinch over the canvas viewport, or use ⌘ + mouse-wheel scrolling, to zoom; ordinary scrolling pans and the zoom menu returns to Fit.
+
+**Live folders:** Add font folder explains recursive watching in the picker, then opens the folder manager. **Live folders** is always accessible in the Library sidebar. Watching updates additions, replacements and removals while the app is open; activation for other apps remains a separate opt-in.
 
 ## Features
 

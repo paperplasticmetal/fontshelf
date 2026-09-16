@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0 — 2026-09-16
+
+- Simplified vocabulary to Spaces → Typeboards → Canvases, with visible canvas tabs, a Show all canvases toggle and clearer New typeboard/Add canvas commands. Legacy generated labels display as Canvas 1, Canvas 2, etc. without rewriting saved names.
+- Exposed recursive live folder watching during folder selection and opened its controls after adding a folder; added a permanent Library sidebar shortcut.
+- Kept every typeboard trash button visible and clickable without selecting or hovering.
+- Added bounded trackpad-pinch and Command-scroll zoom over the canvas viewport, preserving normal scroll-to-pan behavior.
+- Added collections, favorites, category overrides and tag queries to the typeboard font chooser.
+- Fixed canvas text hit-testing to select the exact role/text, including fixed template labels, with per-element text edits that save and undo independently of shared typography.
+- Added native .fig workflow guidance. Direct binary .fig import is still not supported; the tested Figma JSON bridge remains available.
+
 ## 0.16.0 — 2026-09-16
 
 - Added selected-frame Figma import as editable, saved typeboards: independent text styling, solid shapes, original coordinates and canvas dragging, with explicit fidelity warnings. Uses the bundled JSON bridge, not native `.fig` decoding.

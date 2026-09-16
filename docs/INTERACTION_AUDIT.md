@@ -1,5 +1,11 @@
 # Interaction checks — 0.16.0
 
+## 0.17.0 follow-up
+
+Live-checked visible canvas tabs and Show all canvases on a two-canvas board; exact canvas button-label selection into the UI label editor; editing that label without changing the headline, followed by Undo; the existing Portfolio Site collection filtering the font chooser to 14 styles; and the persistent trash action opening confirmation for an unselected board (cancelled without deleting it). The Library live-folders shortcut is visible. Regression checks cover collection/category intersection, manual category overrides, favorites, exact role hit-testing, selected-text serialization/rendering, legacy naming and zoom bounds.
+
+Pinch and Command-scroll handlers are implemented with viewport-limited native event monitoring. Physical trackpad gesture feel has not been verified by automation. Native `.fig` decoding remains unimplemented: Figma's [local-copy guide](https://help.figma.com/hc/en-us/articles/8403626871063-Save-a-local-copy-of-files) and [import guide](https://help.figma.com/hc/en-us/articles/360041003114-Import-files-to-the-file-browser) describe reopening the file in Figma; no supported local decoding contract was found during this pass. The in-app import menu explains the bridge workflow.
+
 Tested on macOS 26.3, Apple Silicon, September 16, 2026. These checks cover the exercised paths, not every font, Figma document or accessibility configuration.
 
 ## Live checks

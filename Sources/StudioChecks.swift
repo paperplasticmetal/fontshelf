@@ -51,6 +51,29 @@ enum StudioChecks {
         let store = StudioStore(url: root.appendingPathComponent("spaces.json"))
         let space = store.addSpace("Client"), boardID = store.addBoard(space: space, fonts: ["Georgia", "Helvetica"])!
         var board = store.state.spaces[0].boards[0]
+        try verify(board.canvasName(board.directions[0]) == "Canvas 1")
+        var legacyBoard = board; legacyBoard.directions[0].name = "Direction A copy"
+        try verify(legacyBoard.canvasName(legacyBoard.directions[0]) == "Canvas 1" && legacyBoard.directions[0].name == "Direction A copy", "Legacy canvas labels must not rewrite saved names")
+        try verify(CanvasZoomInput.clamped(0.001) == 0.1 && CanvasZoomInput.clamped(12) == 4 && CanvasZoomInput.clamped(.nan) == 1, "Zoom bounds")
+        var textCanvas = TypeDirection()
+        let originalPlan = CanvasPlan(direction: textCanvas)
+        let textElement = originalPlan.elements.first { $0.role == .label }!
+        try verify(originalPlan.text(at: NSPoint(x: textElement.rect.midX, y: textElement.rect.midY))?.role == .label, "Exact text hit-test must select UI label, not first role in section")
+        let textID = textElement.textID!
+        textCanvas.textOverrides = [textID: "Explore the studio"]
+        let textData = try JSONEncoder().encode(textCanvas)
+        let decodedTextCanvas = try JSONDecoder().decode(TypeDirection.self, from: textData)
+        try verify(CanvasPlan(direction: decodedTextCanvas).elements.first { $0.textID == textID }?.text?.string == "Explore the studio", "Selected text override must persist and render")
+        let filterLibrary = Library(storageURL: root.appendingPathComponent("filters/library.json"))
+        filterLibrary.families = catalog
+        let filterSample = catalog[0]
+        filterLibrary.saved.collections["Studio shortlist"] = [filterSample.name]
+        filterLibrary.saved.overrides[filterSample.name] = .script
+        filterLibrary.saved.favorites = [filterSample.name]
+        let scoped = StudioFontFilter.faces(library: filterLibrary, collection: "collection:Studio shortlist", category: "Script", search: "")
+        try verify(Set(scoped.map(\.name)) == Set(filterSample.faces.map(\.name)), "Font chooser must honor collection and user category override")
+        try verify(StudioFontFilter.faces(library: filterLibrary, collection: "collection:Studio shortlist", category: "Serif", search: "").isEmpty, "Chooser filters intersect")
+        try verify(StudioFontFilter.faces(library: filterLibrary, collection: "Favorites", category: "All categories", search: "").count == filterSample.faces.count, "Chooser favorites")
         try verify(board.id == boardID)
         var duplicate = board.directions[0].copy(name: "Direction B")
         duplicate.styles[TypeRole.body.rawValue]!.fontName = "Courier"

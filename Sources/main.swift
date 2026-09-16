@@ -117,8 +117,8 @@ final class Library: ObservableObject {
     var autoActivatedStamps: [String: FontFileStamp] = [:]
     lazy var studio = StudioStore(url: saveURL.deletingLastPathComponent().appendingPathComponent("spaces.json"))
     func pairSelection(_ names: [String]) {
-        let active = workspace ? studio.state.spaces.first(where: { $0.id == studio.focusedSpace })?.id : nil
-        let space = active ?? studio.state.spaces.first(where: { $0.name == "Pairing Studio" })?.id ?? studio.addSpace("Pairing Studio")
+        let active = studio.state.spaces.first(where: { $0.id == studio.focusedSpace })?.id
+        let space = active ?? studio.state.spaces.first?.id ?? studio.addSpace("My projects")
         _ = studio.addBoard(space: space, fonts: names)
         workspace = true
     }
@@ -291,16 +291,18 @@ final class Library: ObservableObject {
     func addFolder() {
         guard !loading else { message = "Wait for the current font scan to finish."; return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        panel.message = "Preview fonts from a folder. Fonts are available inside FontShelf only; nothing is installed or moved."
+        panel.prompt = "Add & Watch"
+        panel.message = "Add this folder and watch it live. Fonts in its subfolders are included, and additions, replacements and removals update automatically every three seconds while FontShelf is open. Nothing is installed or moved."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { try folderAccess.remember(url) } catch { message = "Could not retain folder access: " + error.localizedDescription; return }
         if !saved.folders.contains(url.path) { saved.folders.append(url.path); save() }
-        resolvedFolders.append(url.path)
+        if !resolvedFolders.contains(url.path) { resolvedFolders.append(url.path) }
+        openTools("Folders")
         loading = true
         DispatchQueue.global(qos: .userInitiated).async {
             let count = FontCatalog.registerFolder(url.path)
             let result = FontCatalog.scan()
-            DispatchQueue.main.async { self.acceptCatalog(result); if count > 0 { self.recordImport(folder: url.path) }; self.configureWatcher(); self.applyFolderActivation(); self.finishLoading(); self.message = "Loaded \(count) new font files from \(url.lastPathComponent). Already available or unsupported files were skipped." }
+            DispatchQueue.main.async { self.acceptCatalog(result); if count > 0 { self.recordImport(folder: url.path) }; self.configureWatcher(); self.applyFolderActivation(); self.finishLoading(); self.message = "Watching \(url.lastPathComponent) and its subfolders. Loaded \(count) new font files; changes update automatically while FontShelf is open." }
         }
     }
 }
@@ -444,7 +446,7 @@ struct ContentView: View {
                     HStack {
                         Text("\(library.selectedFamilies.count) selected")
                         Button("Tag…") { library.openTools("Tags") }
-                        Button("Pair…") { library.pairSelection(library.families.filter { library.selectedFamilies.contains($0.name) }.map { library.chosenFace($0).name }) }
+                        Button("New typeboard…") { library.pairSelection(library.families.filter { library.selectedFamilies.contains($0.name) }.map { library.chosenFace($0).name }) }
                         Button("PDF…") { SpecimenExporter.export(faces: library.families.filter { library.selectedFamilies.contains($0.name) }.map { library.chosenFace($0) }, library: library, sample: preview == "{family}" ? "Hamburgefontsiv 0123456789" : preview) }
                         Button("Edit families…") { library.openTools("Families") }
                         Button("Export fonts…") { if let result = FontExporter.export(library.selectedFaces) { library.message = result } }
@@ -534,6 +536,7 @@ struct ContentView: View {
             } }
             Spacer(minLength: 4)
             Button { library.addFolder() } label: { Label("Add font folder", systemImage: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).foregroundStyle(Color.black.opacity(0.85)).padding(10).background(ShelfPalette.indiaYellow, in: RoundedRectangle(cornerRadius: 12)).padding(12).disabled(library.loading)
+            Button { library.openTools("Folders") } label: { Label("Live folders · \(library.saved.folders.count)", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).padding(.horizontal, 22).padding(.bottom, 8).help("Manage folders that update automatically, including subfolders")
             HStack { ShelfDropdown(title: "Appearance", selection: $appearance, options: ["Dark", "Light", "System"].map { ($0, $0) }, showsTitle: false); Button { library.reload() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(6).help("Refresh installed fonts").disabled(library.loading) }.padding(.horizontal, 12).padding(.bottom, 14)
         }
     }
@@ -562,7 +565,7 @@ struct ContentView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) { Text(library.selection.replacingOccurrences(of: "collection:", with: "").replacingOccurrences(of: "tag:", with: "")).font(.system(size: 25, weight: .semibold)) }
             Spacer()
-            Button { library.pairSelection(library.compared.map { library.chosenFace($0).name }) } label: { Image(systemName: "text.badge.plus") }.help("New pairing")
+            Button("New typeboard", systemImage: "text.badge.plus") { library.pairSelection(library.compared.map { library.chosenFace($0).name }) }.help("Create a typeboard in the current space using your shortlisted fonts")
             Button { library.showAdvanced.toggle() } label: { Image(systemName: library.advanced.active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Advanced filters").popover(isPresented: $library.showAdvanced) { AdvancedFiltersView(library: library) }
             Button { showColors.toggle() } label: { Image(systemName: "paintpalette") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Preview colors").popover(isPresented: $showColors) { PreviewColorsView() }
             Menu("Tools") {
@@ -612,7 +615,7 @@ struct ContentView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).modifier(ShelfCardSurface(selected: library.selectedFamilies.contains(family.name))).contentShape(Rectangle()).onTapGesture { library.detail = family }.contextMenu { actions(family) }
     }
     @ViewBuilder func actions(_ family: Family) -> some View {
-        Button("New pairing with this font") { library.pairSelection([library.chosenFace(family).name]) }
+        Button("New typeboard with this font") { library.pairSelection([library.chosenFace(family).name]) }
         Button(library.comparison.contains(family.name) ? "Remove from comparison" : "Add to comparison") { library.compare(family) }
         Button("Use as overlay reference") { library.overlayName = library.chosenFace(family).name }
         Button("View all styles") { library.detail = family }
@@ -667,7 +670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         addCommand("Browse Google Fonts…", "Google Fonts", to: fileMenu)
         addCommand("New Collection…", "collection", to: fileMenu, key: "n")
         addCommand("Spaces", "spaces", to: fileMenu)
-        addCommand("New Pairing", "pair", to: fileMenu, key: "k")
+        addCommand("New Typeboard", "pair", to: fileMenu, key: "k")
         addCommand("Watched Folders…", "Folders", to: fileMenu)
         addCommand("Export Library Backup…", "backup", to: fileMenu)
         addCommand("Import Library Backup…", "restoreBackup", to: fileMenu)

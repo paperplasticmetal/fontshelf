@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import CoreText
 
-enum CanvasKind: String, Codable, CaseIterable { case website = "Website", product = "Product UI", editorial = "Editorial", poster = "Poster", specimen = "Type system", custom = "Custom layout" }
+enum CanvasKind: String, Codable, CaseIterable { case website = "Website", product = "Product UI", editorial = "Editorial", poster = "Poster", specimen = "Type system", custom = "Custom layout", imported = "Figma layout" }
 enum TypeRole: String, Codable, CaseIterable, Identifiable {
     case display = "Display", heading = "Heading", subheading = "Subheading", body = "Body", label = "UI label", caption = "Caption", mono = "Monospace"
     var id: String { rawValue }
@@ -68,6 +68,8 @@ struct TypeDirection: Codable, Identifiable, Equatable {
     var addedBlocks: [LayoutBlock]?
     var sectionOrder: [String]?
     var hiddenSections: Set<String>?
+    var importedLayout: ImportedLayout?
+    var importWarnings: [String]?
     init(name: String = "Direction A", fonts: [String] = []) {
         self.name = name
         for role in TypeRole.allCases {
@@ -85,7 +87,30 @@ struct TypeDirection: Codable, Identifiable, Equatable {
         order.insert(source, at: index + (before ? 0 : 1)); sectionOrder = order
     }
 }
-struct TypeBoard: Codable, Identifiable {
+struct ImportedLayer: Codable, Identifiable, Equatable {
+    var id = UUID().uuidString
+    var name: String
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+    var color: String
+    var opacity: Double = 1
+    var radius: Double = 0
+    var style: TypeStyle?
+    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+struct ImportedLayout: Codable, Equatable {
+    var width: Double
+    var height: Double
+    var layers: [ImportedLayer]
+    var isValid: Bool {
+        width.isFinite && height.isFinite && (1...10000).contains(width) && (1...100000).contains(height) && layers.count <= 5000 && Set(layers.map(\.id)).count == layers.count && layers.allSatisfy { layer in
+            [layer.x, layer.y, layer.width, layer.height, layer.opacity, layer.radius].allSatisfy(\.isFinite) && abs(layer.x) <= 100000 && abs(layer.y) <= 100000 && (0.01...100000).contains(layer.width) && (0.01...100000).contains(layer.height) && (0...1).contains(layer.opacity) && (0...10000).contains(layer.radius) && (layer.style.map { $0.size.isFinite && (1...1000).contains($0.size) && $0.text.utf8.count <= 200000 && $0.tracking.isFinite && abs($0.tracking) <= 100 && ($0.lineHeight.map { $0.isFinite && (1...2000).contains($0) } ?? true) && $0.axes.values.allSatisfy(\.isFinite) && [$0.paragraphSpacing, $0.indent, $0.wordSpacing].allSatisfy { $0.map { $0.isFinite && abs($0) <= 1000 } ?? true } } ?? true)
+        }
+    }
+}
+struct TypeBoard: Codable, Identifiable, Equatable {
     var id = UUID()
     var name = "Untitled typeboard"
     var directions = [TypeDirection()]
@@ -94,7 +119,7 @@ struct TypeBoard: Codable, Identifiable {
     var checkpoints: [DirectionCheckpoint]?
     var isValid: Bool { !directions.isEmpty && directions.allSatisfy(\.isValid) && (checkpoints ?? []).allSatisfy { $0.direction.isValid } }
 }
-struct DirectionCheckpoint: Codable, Identifiable {
+struct DirectionCheckpoint: Codable, Identifiable, Equatable {
     var id = UUID()
     var date = Date()
     var direction: TypeDirection
@@ -117,9 +142,12 @@ final class StudioStore: ObservableObject {
     @Published var error = ""
     @Published var savedAt: Date?
     let url: URL
+    let undoManager = UndoManager()
+    private var lastEdit: (board: UUID, action: String, date: Date)?
     private(set) var readBlocked = false
     init(url: URL) {
         self.url = url
+        undoManager.levelsOfUndo = 100
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             let loaded = try JSONDecoder().decode(StudioState.self, from: Data(contentsOf: url))
@@ -150,9 +178,49 @@ final class StudioStore: ObservableObject {
         let board = TypeBoard(name: "Typeboard \(state.spaces[i].boards.count + 1)", directions: [TypeDirection(fonts: fonts)], candidates: fonts)
         state.spaces[i].boards.append(board); focusedSpace = space; focusedBoard = board.id; save(); return board.id
     }
-    func update(space: UUID, board: TypeBoard) {
+    func update(space: UUID, board: TypeBoard, action: String = "Edit Typeboard") {
         guard let i = state.spaces.firstIndex(where: { $0.id == space }), let j = state.spaces[i].boards.firstIndex(where: { $0.id == board.id }) else { return }
+        let previous = state.spaces[i].boards[j]
+        guard previous != board else { return }
+        // Direction navigation isn't a document edit and shouldn't fill the undo stack.
+        var content = previous; content.selectedDirection = board.selectedDirection
+        if content != board {
+            let replaying = undoManager.isUndoing || undoManager.isRedoing
+            let coalesced = !replaying && !undoManager.canRedo && undoManager.canUndo && action.hasPrefix("Change ") && action != "Change Font" && lastEdit?.board == board.id && lastEdit?.action == action && Date().timeIntervalSince(lastEdit!.date) < 0.8
+            if !coalesced {
+                if !replaying { undoManager.beginUndoGrouping() }
+                undoManager.registerUndo(withTarget: self) { store in
+                    store.update(space: space, board: previous, action: action)
+                    store.focusedSpace = space; store.focusedBoard = previous.id; store.save()
+                }
+                undoManager.setActionName(action)
+                if !replaying { undoManager.endUndoGrouping() }
+            }
+            lastEdit = replaying ? nil : (board.id, action, Date())
+        } else {
+            lastEdit = nil
+        }
         state.spaces[i].boards[j] = board; save()
+    }
+    func endUndoCoalescing() { lastEdit = nil }
+    func removeBoard(space: UUID, id: UUID) {
+        guard let i = state.spaces.firstIndex(where: { $0.id == space }), let j = state.spaces[i].boards.firstIndex(where: { $0.id == id }) else { return }
+        let board = state.spaces[i].boards[j]
+        let replaying = undoManager.isUndoing || undoManager.isRedoing
+        if !replaying { undoManager.beginUndoGrouping() }
+        undoManager.registerUndo(withTarget: self) { $0.restoreBoard(space: space, board: board, index: j) }
+        undoManager.setActionName("Delete Typeboard")
+        if !replaying { undoManager.endUndoGrouping() }
+        lastEdit = nil; state.spaces[i].boards.remove(at: j)
+        if focusedBoard == id { focusedBoard = state.spaces[i].boards.first?.id }
+        save()
+    }
+    private func restoreBoard(space: UUID, board: TypeBoard, index: Int) {
+        guard let i = state.spaces.firstIndex(where: { $0.id == space }), !state.spaces[i].boards.contains(where: { $0.id == board.id }) else { return }
+        undoManager.registerUndo(withTarget: self) { $0.removeBoard(space: space, id: board.id) }
+        undoManager.setActionName("Delete Typeboard")
+        state.spaces[i].boards.insert(board, at: min(index, state.spaces[i].boards.count))
+        focusedSpace = space; focusedBoard = board.id; lastEdit = nil; save()
     }
 }
 

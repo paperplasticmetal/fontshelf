@@ -167,3 +167,51 @@ enum FigmaLayoutExporter {
         return folder
     }
 }
+
+enum FigmaLayoutImporter {
+    static func board(data: Data, fonts: [Face]) throws -> TypeBoard {
+        func invalid(_ message: String) -> NSError { NSError(domain: "FontShelf", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
+        guard data.count <= 20_000_000, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any], root["format"] as? String == "fontshelf-figma", root["version"] as? Int == 1, let frames = root["frames"] as? [[String: Any]], !frames.isEmpty, frames.count <= 30 else { throw invalid("Choose a FontShelf layout JSON exported by the Figma bridge. Native .fig files are not supported.") }
+        func number(_ object: [String: Any], _ key: String, fallback: Double? = nil) throws -> Double {
+            guard let n = object[key] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { if let fallback, object[key] == nil { return fallback }; throw invalid("Invalid numeric value: " + key) }; return n.doubleValue
+        }
+        func color(_ value: Any?) throws -> (String, Double) {
+            guard let c = value as? [String: Any] else { throw invalid("A layer is missing its color.") }
+            let r = try number(c, "r"), g = try number(c, "g"), b = try number(c, "b"), a = try number(c, "a", fallback: 1)
+            guard [r, g, b, a].allSatisfy({ (0...1).contains($0) }) else { throw invalid("A layer has an invalid color.") }
+            return (NSColor(srgbRed: r, green: g, blue: b, alpha: a).rgbHex, a)
+        }
+        var directions: [TypeDirection] = []
+        for frame in frames {
+            let width = try number(frame, "width"), height = try number(frame, "height")
+            guard let elements = frame["elements"] as? [[String: Any]], elements.count <= 5000 else { throw invalid("The frame contains too many layers.") }
+            var warnings = root["warnings"] as? [String] ?? []
+            var layers: [ImportedLayer] = []
+            for e in elements {
+                let (hex, opacity) = try color(e["color"])
+                var layer = ImportedLayer(name: e["name"] as? String ?? e["section"] as? String ?? "Layer", x: try number(e, "x"), y: try number(e, "y"), width: try number(e, "width"), height: try number(e, "height"), color: hex, opacity: opacity, radius: try number(e, "radius", fallback: 0))
+                if e["kind"] as? String == "text" {
+                    guard let text = e["text"] as? String, let family = e["fontFamily"] as? String, let fontStyle = e["fontStyle"] as? String else { throw invalid("A text layer is incomplete.") }
+                    let face = fonts.first { $0.originalFamily.caseInsensitiveCompare(family) == .orderedSame && $0.style.caseInsensitiveCompare(fontStyle) == .orderedSame }
+                    let name = face?.name ?? family
+                    if face == nil { warnings.append("Font “\(family) \(fontStyle)” is unavailable; check the fallback for \(layer.name).") }
+                    var style = TypeStyle(fontName: name, size: try number(e, "fontSize"), tracking: try number(e, "letterSpacing", fallback: 0), text: text)
+                    style.lineHeight = try number(e, "lineHeight"); style.paragraphSpacing = try number(e, "paragraphSpacing", fallback: 0); style.indent = try number(e, "paragraphIndent", fallback: 0)
+                    style.alignment = TextAlignmentOption.allCases.first { $0.rawValue.uppercased() == e["alignment"] as? String } ?? .left
+                    style.underline = e["underline"] as? Bool; style.strikethrough = e["strikethrough"] as? Bool
+                    style.kerning = e["kerning"] as? Bool; style.wordSpacing = try number(e, "wordSpacing", fallback: 0)
+                    style.features = e["features"] as? [String: Int] ?? [:]
+                    for (tag, value) in e["axes"] as? [String: Double] ?? [:] where tag.utf8.count == 4 { style.axes[tag.utf8.reduce(0) { ($0 << 8) | Int($1) }] = value }
+                    layer.style = style
+                } else if e["kind"] as? String != "rectangle" { throw invalid("Unsupported layer kind. Export it again with the FontShelf bridge.") }
+                layers.append(layer)
+            }
+            let layout = ImportedLayout(width: width, height: height, layers: layers)
+            guard layout.isValid else { throw invalid("The layout has invalid bounds or typography.") }
+            var direction = TypeDirection(name: frame["name"] as? String ?? "Figma frame")
+            direction.canvas = .imported; direction.width = width; direction.paper = try color(frame["paper"]).0; direction.importedLayout = layout
+            direction.importWarnings = Array(Set(warnings)).sorted(); directions.append(direction)
+        }
+        return TypeBoard(name: root["name"] as? String ?? "Figma typeboard", directions: directions, selectedDirection: directions.first?.id)
+    }
+}

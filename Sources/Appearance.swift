@@ -57,6 +57,9 @@ struct ShelfCardSurface: ViewModifier {
 }
 extension View {
     func shelfGlass(radius: CGFloat = 18) -> some View { modifier(ShelfGlass(radius: radius)) }
+    // Let AppKit measure the complete menu control; an undersized outer frame lets
+    // its native indicator draw into the next button on newer macOS versions.
+    func shelfIconMenu() -> some View { menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().padding(.horizontal, 6).frame(minWidth: 30, minHeight: 28) }
 }
 
 // All popup controls resolve their native text and menu appearance from the

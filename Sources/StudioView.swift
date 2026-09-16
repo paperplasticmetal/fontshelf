@@ -16,7 +16,9 @@ struct StudioView: View {
     @State private var boardID: UUID?
     @State private var newName = ""
     @State private var showNewSpace = false
+    @State private var renamingSpace = false
     @State private var confirmDelete = false
+    @State private var deletingBoard: (space: UUID, board: TypeBoard)?
     var space: DesignSpace? { store.state.spaces.first { $0.id == spaceID } ?? store.state.spaces.first }
     var board: TypeBoard? { space?.boards.first { $0.id == boardID } ?? space?.boards.first }
     var body: some View {
@@ -25,21 +27,23 @@ struct StudioView: View {
         VStack(spacing: 0) {
             if !store.error.isEmpty { Text(store.error).foregroundStyle(.orange).textSelection(.enabled).padding(.horizontal, 20) }
             if let space {
-                HStack {
-                    TextField("Space name", text: Binding(get: { self.space?.name ?? "" }, set: { value in if let i = store.state.spaces.firstIndex(where: { $0.id == space.id }) { store.state.spaces[i].name = value; store.save() } })).textFieldStyle(.plain).font(.system(size: 22, weight: .semibold))
+                HStack(spacing: 12) {
+                    Text(space.name).font(.system(size: 22, weight: .semibold)).lineLimit(1).frame(minHeight: 30).help(space.name)
                     Spacer()
                     Button("New pairing") { boardID = store.addBoard(space: space.id, fonts: library.compared.map { library.chosenFace($0).name }) }
                     Menu {
+                        Button("Rename space…") { newName = space.name; renamingSpace = true; showNewSpace = true }
+                        Button("Import Figma typeboard…") { importFigma() }
                         Button("Export space…") { exportSpace(space) }
                         Button("Import space…") { importSpace() }
                         Divider()
                         Button("Delete space…", role: .destructive) { confirmDelete = true }
-                    } label: { Image(systemName: "ellipsis") }.frame(width: 30)
-                }.padding(18)
+                    } label: { Image(systemName: "ellipsis") }.shelfIconMenu().help("Space actions").accessibilityLabel("Space actions")
+                }.padding(.horizontal, 18).padding(.vertical, 14).fixedSize(horizontal: false, vertical: true)
                 Divider()
                 if let board {
-                    TypeBoardEditor(library: library, board: board, onSave: { store.update(space: space.id, board: $0) }, onDelete: {
-                        if let i = store.state.spaces.firstIndex(where: { $0.id == space.id }) { store.state.spaces[i].boards.removeAll { $0.id == board.id }; store.save(); boardID = nil }
+                    TypeBoardEditor(library: library, savedBoard: board, onSave: { store.update(space: space.id, board: $0, action: $1) }, onDelete: {
+                        store.removeBoard(space: space.id, id: board.id); boardID = store.focusedBoard
                     }).id(board.id)
                 } else {
                     VStack(spacing: 14) { Image(systemName: "rectangle.3.group").font(.system(size: 38)); Text("No typeboards").font(.title2); Button("Create typeboard") { boardID = store.addBoard(space: space.id) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -56,15 +60,24 @@ struct StudioView: View {
         .onAppear { if let id = store.focusedSpace { spaceID = id }; if let id = store.focusedBoard { boardID = id } }
         .onChange(of: store.focusedSpace) { id in spaceID = id; boardID = store.focusedBoard }
         .onChange(of: store.focusedBoard) { id in spaceID = store.focusedSpace; boardID = id }
-        .alert("New space", isPresented: $showNewSpace) {
+        .alert(renamingSpace ? "Rename space" : "New space", isPresented: $showNewSpace) {
             TextField("Project or client name", text: $newName)
-            Button("Create") { spaceID = store.addSpace(newName.trimmingCharacters(in: .whitespacesAndNewlines)); boardID = store.addBoard(space: spaceID!, fonts: library.compared.map { library.chosenFace($0).name }); newName = "" }
-            Button("Cancel", role: .cancel) { newName = "" }
+            Button(renamingSpace ? "Rename" : "Create") {
+                let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if renamingSpace, let index = store.state.spaces.firstIndex(where: { $0.id == space?.id }) { store.state.spaces[index].name = name.isEmpty ? "Untitled space" : name; store.save() }
+                else { spaceID = store.addSpace(name); boardID = store.addBoard(space: spaceID!, fonts: library.compared.map { library.chosenFace($0).name }) }
+                newName = ""; renamingSpace = false
+            }
+            Button("Cancel", role: .cancel) { newName = ""; renamingSpace = false }
         }
         .alert("Delete this space and its typeboards?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { if let space { store.state.spaces.removeAll { $0.id == space.id }; store.save(); spaceID = nil; boardID = nil } }
             Button("Cancel", role: .cancel) {}
         }
+        .alert("Delete “\(deletingBoard?.board.name ?? "typeboard")”?", isPresented: Binding(get: { deletingBoard != nil }, set: { if !$0 { deletingBoard = nil } })) {
+            Button("Delete", role: .destructive) { if let target = deletingBoard { store.removeBoard(space: target.space, id: target.board.id); if boardID == target.board.id { boardID = store.focusedBoard } }; deletingBoard = nil }
+            Button("Cancel", role: .cancel) { deletingBoard = nil }
+        } message: { Text("Its directions will be removed from this space. You can undo this with ⌘Z.") }
     }
     var navigation: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -78,14 +91,12 @@ struct StudioView: View {
                             Label(item.name, systemImage: "rectangle.3.group").fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(space?.id == item.id ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
                         }.buttonStyle(.plain)
                         ForEach(item.boards) { child in
-                            Button { spaceID = item.id; boardID = child.id; store.focusedSpace = item.id; store.focusedBoard = child.id; store.save() } label: {
-                                HStack { Image(systemName: "rectangle.on.rectangle"); Text(child.name).lineLimit(2); Spacer() }.font(.caption).padding(.leading, 16).padding(8).foregroundStyle(board?.id == child.id ? Color.accentColor : Color.secondary).background(board?.id == child.id ? Color.primary.opacity(0.04) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            }.buttonStyle(.plain)
+                            StudioBoardRow(name: child.name, selected: board?.id == child.id, onSelect: { spaceID = item.id; boardID = child.id; store.focusedSpace = item.id; store.focusedBoard = child.id; store.save() }, onDelete: { deletingBoard = (item.id, child) })
                         }
                     }
                 }
             }
-            Button("Import space…") { importSpace() }.buttonStyle(.plain).foregroundStyle(.secondary).padding(.bottom, 12)
+            Menu("Import…") { Button("Space…") { importSpace() }; Button("Figma typeboard…") { importFigma() } }.menuStyle(.borderlessButton).fixedSize().padding(.bottom, 12)
         }.padding(.horizontal, 12)
     }
     func exportSpace(_ space: DesignSpace) {
@@ -101,14 +112,42 @@ struct StudioView: View {
             guard space.boards.allSatisfy(\.isValid) else { throw CocoaError(.fileReadCorruptFile) }
             space.id = UUID()
             for i in space.boards.indices { space.boards[i].id = UUID(); space.boards[i].directions = space.boards[i].directions.map { $0.copy(name: $0.name) }; space.boards[i].selectedDirection = nil }
-            store.state.spaces.append(space); store.save(); spaceID = space.id; boardID = nil
+            store.state.spaces.append(space); store.focusedSpace = space.id; store.focusedBoard = nil; store.save(); spaceID = space.id; boardID = nil
         } catch { store.error = "Space could not be imported: " + error.localizedDescription }
+    }
+    func importFigma() {
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]
+        panel.message = "In the FontShelf Figma bridge, export selected frames to FontShelf, then choose that JSON file. Native .fig files are not supported."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 20_000_000 else { throw CocoaError(.fileReadTooLarge) }
+            let imported = try FigmaLayoutImporter.board(data: Data(contentsOf: url), fonts: library.allFaces)
+            let target = space?.id ?? store.addSpace("Figma imports")
+            guard let index = store.state.spaces.firstIndex(where: { $0.id == target }) else { return }
+            store.state.spaces[index].boards.append(imported); store.focusedSpace = target; store.focusedBoard = imported.id; store.save(); spaceID = target; boardID = imported.id
+        } catch { store.error = "Figma layout could not be imported: " + error.localizedDescription }
+    }
+}
+
+struct StudioBoardRow: View {
+    let name: String
+    let selected: Bool
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+    @State private var hovered = false
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: onSelect) { HStack { Image(systemName: "rectangle.on.rectangle"); Text(name).lineLimit(2); Spacer(minLength: 0) }.contentShape(Rectangle()) }.buttonStyle(.plain)
+            Button(action: onDelete) { Image(systemName: "trash").frame(width: 22, height: 24) }.buttonStyle(.borderless).help("Delete " + name).accessibilityLabel("Delete " + name).opacity(selected || hovered ? 1 : 0).accessibilityHidden(!selected && !hovered)
+        }.font(.caption).padding(.leading, 16).padding(6).foregroundStyle(selected ? ShelfPalette.ink : Color.secondary)
+            .background(selected ? Color.primary.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 6)).onHover { hovered = $0 }
+            .contextMenu { Button("Delete typeboard…", role: .destructive, action: onDelete) }
     }
 }
 
 extension TypeDirection {
     var isValid: Bool {
-        width.isFinite && (320...1600).contains(width) && TypeRole.allCases.allSatisfy { role in
+        width.isFinite && (canvas == .imported ? (1...10000).contains(width) : (320...1600).contains(width)) && (importedLayout?.isValid ?? (canvas != .imported)) && TypeRole.allCases.allSatisfy { role in
             guard let s = styles[role.rawValue] else { return false }
             return s.size.isFinite && (8...160).contains(s.size) && s.leading.isFinite && (1...2.5).contains(s.leading) && s.tracking.isFinite && (-3...12).contains(s.tracking) && s.axes.values.allSatisfy(\.isFinite) && (s.lineHeight.map { $0.isFinite && (8...400).contains($0) } ?? true) && [s.paragraphSpacing, s.indent].allSatisfy { $0.map { $0.isFinite && (0...200).contains($0) } ?? true } && (s.wordSpacing.map { $0.isFinite && (-3...40).contains($0) } ?? true)
         }
@@ -118,8 +157,13 @@ extension TypeDirection {
 struct TypeBoardEditor: View {
     @ObservedObject var library: Library
     @State var board: TypeBoard
-    let onSave: (TypeBoard) -> Void
+    let savedBoard: TypeBoard
+    let onSave: (TypeBoard, String) -> Void
     let onDelete: () -> Void
+    init(library: Library, savedBoard: TypeBoard, onSave: @escaping (TypeBoard, String) -> Void, onDelete: @escaping () -> Void) {
+        self.library = library; self.savedBoard = savedBoard; self.onSave = onSave; self.onDelete = onDelete
+        _board = State(initialValue: savedBoard)
+    }
     @State private var role = TypeRole.display
     @State private var fontSearch = ""
     @State private var compareID: UUID?
@@ -131,23 +175,29 @@ struct TypeBoardEditor: View {
     @State private var selectedSection: String?
     @State private var abID: UUID?
     @State private var inspectorTab = "Typography"
+    @FocusState private var fontSearchFocused: Bool
     var directionIndex: Int { board.directions.firstIndex { $0.id == board.selectedDirection } ?? 0 }
     var direction: TypeDirection { board.directions[directionIndex] }
-    var style: TypeStyle { direction.style(role) }
+    var importedLayerIndex: Int? { guard direction.canvas == .imported else { return nil }; return direction.importedLayout?.layers.firstIndex { $0.id == selectedSection && $0.style != nil } ?? direction.importedLayout?.layers.firstIndex { $0.style != nil } }
+    var style: TypeStyle { if let index = importedLayerIndex, let style = direction.importedLayout?.layers[index].style { return style }; return direction.style(role) }
+    var editingTitle: String { if let index = importedLayerIndex { return direction.importedLayout?.layers[index].name ?? "Text layer" }; return role.rawValue }
+    func setStyle(_ style: TypeStyle) { if let index = importedLayerIndex { board.directions[directionIndex].importedLayout?.layers[index].style = style } else { board.directions[directionIndex].styles[role.rawValue] = style } }
     var faces: [Face] { library.allFaces.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
-    var missingFonts: [String] { Set(direction.styles.values.map(\.fontName)).subtracting(Set(library.allFaces.map(\.name))).sorted() }
-    func save() { onSave(board) }
+    var missingFonts: [String] { Set(direction.canvas == .imported ? direction.importedLayout?.layers.compactMap { $0.style?.fontName } ?? [] : direction.styles.values.map(\.fontName)).subtracting(Set(library.allFaces.map(\.name))).sorted() }
+    func save(_ action: String = "Edit Typeboard") { onSave(board, action) }
     func directionBinding<T>(_ key: WritableKeyPath<TypeDirection, T>) -> Binding<T> { Binding(get: { direction[keyPath: key] }, set: { board.directions[directionIndex][keyPath: key] = $0; save() }) }
-    func styleBinding<T>(_ key: WritableKeyPath<TypeStyle, T>) -> Binding<T> { Binding(get: { style[keyPath: key] }, set: { var updated = style; updated[keyPath: key] = $0; board.directions[directionIndex].styles[role.rawValue] = updated; save() }) }
+    func styleBinding<T>(_ key: WritableKeyPath<TypeStyle, T>) -> Binding<T> { Binding(get: { style[keyPath: key] }, set: { var updated = style; updated[keyPath: key] = $0; setStyle(updated); save(key == \TypeStyle.size ? "Change Size" : key == \TypeStyle.tracking ? "Change Letter Spacing" : key == \TypeStyle.text ? "Change Sample Text" : "Edit Typography") }) }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 TextField("Typeboard name", text: Binding(get: { board.name }, set: { board.name = $0; save() })).textFieldStyle(.plain).font(.headline).frame(minWidth: 110)
                 ShelfDropdown(title: "Direction", selection: Binding(get: { direction.id }, set: { board.selectedDirection = $0; save() }), options: board.directions.map { ($0.name, $0.id) }).frame(width: 230)
-                Button { let copy = direction.copy(); board.directions.append(copy); board.selectedDirection = copy.id; save() } label: { Image(systemName: "plus.square.on.square") }.help("Duplicate direction")
+                Button { let copy = direction.copy(); board.directions.append(copy); board.selectedDirection = copy.id; save("Duplicate Direction") } label: { Image(systemName: "plus.square.on.square") }.help("Duplicate direction").accessibilityLabel("Duplicate direction")
+                Menu("Export") {
+                    Button("Preview PDF…") { exportPDF() }
+                    Button("Editable Figma layout…") { exportFigma() }
+                }.fixedSize()
                 Menu {
-                    Button("Export preview PDF…") { exportPDF() }
-                    Button("Export editable Figma layout…") { exportFigma() }
                     Button("Save checkpoint") { var values = board.checkpoints ?? []; values.append(DirectionCheckpoint(direction: direction)); board.checkpoints = Array(values.suffix(50)); save(); status = "Checkpoint saved" }
                     Menu("Restore checkpoint as direction") {
                         ForEach((board.checkpoints ?? []).reversed()) { checkpoint in Button(checkpoint.direction.name + " · " + checkpoint.date.formatted(date: .abbreviated, time: .shortened)) { let copy = checkpoint.direction.copy(name: checkpoint.direction.name + " restored"); board.directions.append(copy); board.selectedDirection = copy.id; save() } }
@@ -156,26 +206,30 @@ struct TypeBoardEditor: View {
                     Divider()
                     Button("Delete direction", role: .destructive) { let id = direction.id; board.directions.removeAll { $0.id == id }; board.selectedDirection = board.directions.first?.id; compareID = nil; abID = nil; save() }.disabled(board.directions.count < 2)
                     Button("Delete typeboard…", role: .destructive) { showDelete = true }
-                } label: { Image(systemName: "ellipsis") }.frame(width: 28)
-            }.padding(14)
+                } label: { Image(systemName: "ellipsis") }.shelfIconMenu().help("Typeboard actions").accessibilityLabel("Typeboard actions")
+            }.padding(14).fixedSize(horizontal: false, vertical: true)
             HStack {
-                ShelfDropdown(title: "Canvas", selection: directionBinding(\.canvas), options: CanvasKind.allCases.map { ($0.rawValue, $0) }).frame(width: 210)
-                ShelfDropdown(title: "Width", selection: directionBinding(\.width), options: [("Mobile · 390", 390.0), ("Tablet · 768", 768.0), ("Desktop · 1200", 1200.0), ("Canvas · 960", 960.0)]).frame(width: 190)
+                ShelfDropdown(title: "Canvas", selection: directionBinding(\.canvas), options: CanvasKind.allCases.filter { $0 != .imported || direction.importedLayout != nil }.map { ($0.rawValue, $0) }).frame(minWidth: 115, idealWidth: 180, maxWidth: 210)
+                if direction.canvas == .imported { Text("\(Int(direction.width)) px").font(.caption).foregroundStyle(.secondary) }
+                else { ShelfDropdown(title: "Width", selection: directionBinding(\.width), options: [("Mobile · 390", 390.0), ("Tablet · 768", 768.0), ("Desktop · 1200", 1200.0), ("Canvas · 960", 960.0)], showsTitle: false).frame(width: 132) }
                 Spacer()
                 Menu {
-                    ForEach(board.directions.filter { $0.id != direction.id && $0.canvas == direction.canvas && $0.width == direction.width }) { candidate in Button(candidate.name) { abID = candidate.id; compareID = nil } }
-                    if abID != nil { Button("End A/B test") { abID = nil } }
-                } label: { Text(abID == nil ? "A/B test" : "A/B: " + (board.directions.first { $0.id == abID }?.name ?? "")) }.fixedSize().help("Choose a direction with the same canvas and width")
-                Button("Swap A/B") { swapAB() }.keyboardShortcut("\\", modifiers: [.command]).disabled(abID == nil).help("Swap directions (⌘\\)")
-                Menu("Compare") {
-                    Button("Single direction") { compareID = nil }
-                    ForEach(board.directions.filter { $0.id != direction.id }) { candidate in Button(candidate.name) { compareID = candidate.id } }
-                }.frame(width: 90)
+                    Button("Single direction") { compareID = nil; abID = nil }
+                    Menu("Quick A/B") {
+                        let candidates = board.directions.filter { $0.id != direction.id && $0.canvas == direction.canvas && $0.width == direction.width }
+                        if candidates.isEmpty { Text("Duplicate a direction to start"); Text("Use the same canvas and width") }
+                        ForEach(candidates) { candidate in Button(candidate.name) { abID = candidate.id; compareID = nil } }
+                    }
+                    Menu("Side by side") {
+                        ForEach(board.directions.filter { $0.id != direction.id }) { candidate in Button(candidate.name) { compareID = candidate.id; abID = nil } }
+                    }.disabled(board.directions.count < 2)
+                } label: { Label(abID != nil ? "A/B" : compareID != nil ? "Comparing" : "Compare", systemImage: "rectangle.split.2x1") }.fixedSize()
+                if abID != nil { Button { swapAB() } label: { Image(systemName: "arrow.left.arrow.right") }.keyboardShortcut("\\", modifiers: [.command]).help("Swap A/B (⌘\\)").accessibilityLabel("Swap A/B") }
                 ShelfDropdown(title: "Zoom", selection: $zoom, options: [("Fit", 0.0), ("40%", 0.4), ("65%", 0.65), ("100%", 1.0)], showsTitle: false).frame(width: 80)
-            }.padding(.horizontal, 14).padding(.bottom, 12)
+            }.padding(.horizontal, 14).padding(.bottom, 12).fixedSize(horizontal: false, vertical: true)
             Divider()
             HSplitView {
-                inspector.frame(minWidth: 240, idealWidth: 310, maxWidth: 500)
+                inspector.frame(minWidth: 240, idealWidth: 310, maxWidth: 500).background(StudioSplitPosition())
                 VStack(alignment: .leading, spacing: 0) {
                     if library.loading { ProgressView(library.families.isEmpty ? "Loading font library…" : "Checking watched font folders…").controlSize(.small).padding(10) }
                     else if !missingFonts.isEmpty { Label("Unavailable fonts: " + missingFonts.joined(separator: ", ") + ". Preview uses fallback.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).padding(12) }
@@ -186,29 +240,42 @@ struct TypeBoardEditor: View {
                         HStack(alignment: .top, spacing: 24) {
                             canvas(direction, scale: scale)
                             if let other { canvas(other, scale: scale) }
-                        }.padding(24)
+                        }.padding(24).frame(minWidth: geometry.size.width, minHeight: geometry.size.height, alignment: .topLeading)
                     }.background(Color.black.opacity(0.09))
                     }
-                    HStack { Text(status.isEmpty ? "Changes saved to this space" : status); Spacer(); Text("\(Int(direction.width)) px · " + (zoom == 0 ? "Fit" : "\(Int(zoom * 100))%" )).monospacedDigit() }.font(.caption).foregroundStyle(.secondary).padding(10)
+                    HStack { Text(!library.studio.error.isEmpty ? "Changes could not be saved" : status.isEmpty ? "Saved" : status).lineLimit(2); Spacer(); if let partner = board.directions.first(where: { $0.id == abID }) { Text("A/B · " + partner.name).lineLimit(1) }; Text("\(Int(direction.width)) px · " + (zoom == 0 ? "Fit" : "\(Int(zoom * 100))%" )).monospacedDigit() }.font(.caption).foregroundStyle(.secondary).padding(10)
                 }.frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
             }
         }.alert("Delete this typeboard?", isPresented: $showDelete) { Button("Delete", role: .destructive, action: onDelete); Button("Cancel", role: .cancel) {} }
+        .onChange(of: savedBoard) { value in if value != board { board = value } }
+        .onChange(of: role) { _ in library.studio.endUndoCoalescing() }
+        .onChange(of: selectedSection) { _ in library.studio.endUndoCoalescing() }
         .onChange(of: direction.id) { _ in selectedSection = nil; draggedSection = nil; if let other = board.directions.first(where: { $0.id == abID }), other.canvas != direction.canvas || other.width != direction.width { abID = nil } }
         .onChange(of: direction.canvas) { _ in abID = nil; selectedSection = nil }
         .onChange(of: direction.width) { _ in abID = nil }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FontShelfMenu"))) { event in if event.object as? String == "find" { showFontPicker = true } }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FontShelfMenu"))) { event in if event.object as? String == "find" { inspectorTab = "Typography"; DispatchQueue.main.async { showFontPicker = true } } }
     }
     func swapAB() { guard let id = abID, board.directions.contains(where: { $0.id == id && $0.canvas == direction.canvas && $0.width == direction.width }) else { return }; abID = direction.id; board.selectedDirection = id; compareID = nil; save() }
     func moveSection(_ source: String, _ target: String, _ before: Bool) {
         let plan = CanvasPlan(direction: direction)
-        board.directions[directionIndex].reorder(source, target: target, before: before, visible: plan.sections.map(\.id)); selectedSection = source; save()
+        if direction.canvas == .imported, var layout = direction.importedLayout, source != target, let index = layout.layers.firstIndex(where: { $0.id == source }) {
+            let layer = layout.layers.remove(at: index)
+            if let destination = layout.layers.firstIndex(where: { $0.id == target }) { layout.layers.insert(layer, at: destination + (before ? 0 : 1)); board.directions[directionIndex].importedLayout = layout; selectedSection = source; save("Reorder Layers") }; return
+        }
+        board.directions[directionIndex].reorder(source, target: target, before: before, visible: plan.sections.map(\.id)); selectedSection = source; save("Reorder Sections")
+    }
+    func moveLayer(_ id: String, _ dx: Double, _ dy: Double) {
+        guard let index = direction.importedLayout?.layers.firstIndex(where: { $0.id == id }) else { return }
+        board.directions[directionIndex].importedLayout!.layers[index].x = min(100000, max(0, direction.importedLayout!.layers[index].x + dx))
+        board.directions[directionIndex].importedLayout!.layers[index].y = min(100000, max(0, direction.importedLayout!.layers[index].y + dy))
+        save("Move Layer")
     }
     func canvas(_ direction: TypeDirection, scale: Double) -> some View {
         let zoom = scale
         let plan = CanvasPlan(direction: direction)
         return VStack(alignment: .leading, spacing: 10) {
             Text(direction.name).font(.caption).foregroundStyle(.secondary)
-            CanvasPreview(plan: plan, zoom: zoom, directionID: direction.id == self.direction.id ? direction.id : nil, selectedSection: selectedSection, onSelect: { id in selectedSection = id; if let item = plan.elements.first(where: { $0.sectionID == id && $0.role != nil })?.role { role = item } }, onMove: moveSection)
+            CanvasPreview(plan: plan, zoom: zoom, directionID: direction.id == self.direction.id ? direction.id : nil, selectedSection: selectedSection, onSelect: { id in selectedSection = id; if let item = plan.elements.first(where: { $0.sectionID == id && $0.role != nil })?.role { role = item } }, onMove: moveSection, onTranslate: direction.canvas == .imported ? moveLayer : nil)
                 .frame(width: plan.size.width * zoom, height: plan.size.height * zoom).shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         }
     }
@@ -219,6 +286,11 @@ struct TypeBoardEditor: View {
                 Picker("Inspector", selection: $inspectorTab) { Text("Typography").tag("Typography"); Text("Arrangement").tag("Arrangement") }.pickerStyle(.segmented).labelsHidden()
                 if inspectorTab == "Arrangement" { layoutSections }
                 else {
+                if direction.canvas == .imported {
+                    Text("IMPORTED TEXT LAYERS").font(.caption).foregroundStyle(.secondary)
+                    ShelfDropdown(title: "Layer", selection: Binding(get: { importedLayerIndex.flatMap { direction.importedLayout?.layers[$0].id } ?? "" }, set: { selectedSection = $0 }), options: (direction.importedLayout?.layers.filter { $0.style != nil } ?? []).map { ($0.name, $0.id) }, showsTitle: false)
+                    Text("Edit each text layer independently. Drag layers on the canvas to position them.").font(.caption).foregroundStyle(.secondary)
+                } else {
                 Text("TYPE ROLES").font(.caption).foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
                 ForEach(TypeRole.allCases) { item in
@@ -227,13 +299,14 @@ struct TypeBoardEditor: View {
                     }.buttonStyle(.plain)
                 }
                 }
+                }
                 Divider()
-                Text(role.rawValue).font(.headline)
+                Text(editingTitle).font(.headline)
                 Button { showFontPicker = true } label: { HStack { VStack(alignment: .leading, spacing: 4) { Text("Font").font(.caption).foregroundStyle(.secondary); Text(style.fontName).lineLimit(2) }; Spacer(); Image(systemName: "magnifyingglass") }.padding(10).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                     .popover(isPresented: $showFontPicker) { fontPicker }
-                numeric("Size", value: styleBinding(\.size), range: 8...160, unit: "px")
-                numeric("Line height", value: Binding(get: { style.lineHeight ?? style.size * style.leading }, set: { var s = style; s.lineHeight = $0; board.directions[directionIndex].styles[role.rawValue] = s; save() }), range: 8...400, unit: "px")
-                Button("Auto line height") { var s = style; s.lineHeight = nil; board.directions[directionIndex].styles[role.rawValue] = s; save() }.font(.caption)
+                numeric("Size", value: styleBinding(\.size), range: direction.canvas == .imported ? 1...1000 : 8...160, unit: "px")
+                numeric("Line height", value: Binding(get: { style.lineHeight ?? style.size * style.leading }, set: { var s = style; s.lineHeight = $0; setStyle(s); save("Change Line Height") }), range: direction.canvas == .imported ? 1...2000 : 8...400, unit: "px")
+                Button("Auto line height") { var s = style; s.lineHeight = nil; setStyle(s); save() }.font(.caption)
                 numeric("Letter spacing", value: styleBinding(\.tracking), range: -3...12, unit: "px")
                 ShelfDropdown(title: "Alignment", selection: optionalStyleBinding(\.alignment, default: .left), options: TextAlignmentOption.allCases.map { ($0.rawValue, $0) })
                 Toggle("Font kerning", isOn: optionalStyleBinding(\.kerning, default: true)).toggleStyle(.checkbox)
@@ -250,7 +323,7 @@ struct TypeBoardEditor: View {
                 if let face = library.allFaces.first(where: { $0.name == style.fontName }), !face.facts.features.isEmpty {
                     DisclosureGroup("OpenType features") {
                         ForEach(face.facts.features, id: \.self) { tag in
-                            ShelfDropdown(title: tag, selection: Binding(get: { style.features[tag] ?? -1 }, set: { var s = style; if $0 < 0 { s.features.removeValue(forKey: tag) } else { s.features[tag] = $0 }; board.directions[directionIndex].styles[role.rawValue] = s; save() }), options: [("Default", -1), ("Off", 0), ("On", 1)] + (2...9).map { ("Alternate \($0)", $0) })
+                            ShelfDropdown(title: tag, selection: Binding(get: { style.features[tag] ?? -1 }, set: { var s = style; if $0 < 0 { s.features.removeValue(forKey: tag) } else { s.features[tag] = $0 }; setStyle(s); save() }), options: [("Default", -1), ("Off", 0), ("On", 1)] + (2...9).map { ("Alternate \($0)", $0) })
                         }
                     }
                 }
@@ -258,17 +331,18 @@ struct TypeBoardEditor: View {
                 TextEditor(text: styleBinding(\.text)).frame(height: 100).overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.25)))
                 }
                 Divider()
-                colorPicker("Text", key: \.ink); colorPicker("Background", key: \.paper); colorPicker("Accent", key: \.accent)
+                if let warnings = direction.importWarnings, !warnings.isEmpty { DisclosureGroup("Import notes (\(warnings.count))") { Text(warnings.joined(separator: "\n")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) } }
+                colorPicker("Text", key: \.ink); colorPicker("Background", key: \.paper); if direction.canvas != .imported { colorPicker("Accent", key: \.accent) }
                 Text("Direction notes").font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: directionBinding(\.notes)).frame(height: 75)
             }.padding(14)
         }
     }
-    func optionalStyleBinding<T>(_ key: WritableKeyPath<TypeStyle, T?>, default fallback: T) -> Binding<T> { Binding(get: { style[keyPath: key] ?? fallback }, set: { var s = style; s[keyPath: key] = $0; board.directions[directionIndex].styles[role.rawValue] = s; save() }) }
+    func optionalStyleBinding<T>(_ key: WritableKeyPath<TypeStyle, T?>, default fallback: T) -> Binding<T> { Binding(get: { style[keyPath: key] ?? fallback }, set: { var s = style; s[keyPath: key] = $0; setStyle(s); save() }) }
     var fontPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("Choose font · " + role.rawValue).font(.headline); Spacer(); Button("Done") { showFontPicker = false } }
-            TextField("Search fonts and styles", text: $fontSearch).textFieldStyle(.roundedBorder)
+            HStack { Text("Choose font · " + editingTitle).font(.headline); Spacer(); Button("Done") { showFontPicker = false } }
+            TextField("Search fonts and styles", text: $fontSearch).textFieldStyle(.roundedBorder).focused($fontSearchFocused)
             if !board.candidates.isEmpty {
                 Menu("Pairing candidates (\(board.candidates.count))") {
                     ForEach(board.candidates, id: \.self) { name in Button(name) { chooseFont(name) } }
@@ -277,6 +351,7 @@ struct TypeBoardEditor: View {
             if library.loading && faces.isEmpty { ProgressView("Loading font library…").frame(maxWidth: .infinity, maxHeight: .infinity) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    if !fontSearch.isEmpty && !faces.contains(where: { $0.name.localizedCaseInsensitiveContains(fontSearch) || $0.originalFamily.localizedCaseInsensitiveContains(fontSearch) }) { Text("No fonts match “\(fontSearch)”.").foregroundStyle(.secondary).padding(20).frame(maxWidth: .infinity) }
                     ForEach(faces.filter { fontSearch.isEmpty || $0.name.localizedCaseInsensitiveContains(fontSearch) || $0.originalFamily.localizedCaseInsensitiveContains(fontSearch) }) { face in
                         Button { chooseFont(face.name) } label: {
                             VStack(alignment: .leading, spacing: 6) {
@@ -287,35 +362,42 @@ struct TypeBoardEditor: View {
                     }
                 }
             }.frame(maxHeight: .infinity)
-        }.padding(18).frame(width: 580, height: 540)
+        }.padding(18).frame(width: 580, height: 540).background(Color(nsColor: .windowBackgroundColor)).onAppear { fontSearchFocused = true }.onExitCommand { showFontPicker = false }
     }
     var layoutSections: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("ARRANGEMENT").font(.caption).foregroundStyle(.secondary); Spacer(); Menu { ForEach(TypeRole.allCases) { item in Button(item.rawValue) { board.directions[directionIndex].addedBlocks = (direction.addedBlocks ?? []) + [LayoutBlock(role: item)]; save() } }; if !(direction.hiddenSections ?? []).isEmpty { Button("Restore removed sections") { board.directions[directionIndex].hiddenSections = nil; save() } } } label: { Image(systemName: "plus") }.frame(width: 28) }
+            HStack { Text("ARRANGEMENT").font(.caption).foregroundStyle(.secondary); Spacer(); Menu { ForEach(TypeRole.allCases) { item in Button(item.rawValue) {
+                if direction.canvas == .imported { let layer = ImportedLayer(name: item.rawValue, x: 24, y: 24, width: max(1, direction.width - 48), height: item.size * 2, color: direction.ink, style: direction.style(item)); board.directions[directionIndex].importedLayout?.layers.append(layer); selectedSection = layer.id }
+                else { board.directions[directionIndex].addedBlocks = (direction.addedBlocks ?? []) + [LayoutBlock(role: item)] }; save("Add Section")
+            } }; if !(direction.hiddenSections ?? []).isEmpty { Button("Restore removed sections") { board.directions[directionIndex].hiddenSections = nil; save() } } } label: { Image(systemName: "plus") }.shelfIconMenu().help("Add section").accessibilityLabel("Add section") }
             let plan = CanvasPlan(direction: direction)
-            ForEach(plan.sections) { section in
-                HStack {
-                    SectionDragTarget(id: section.id, title: section.title, directionID: direction.id, height: 34, selected: selectedSection == section.id, dragging: $draggedSection, onSelect: { selectedSection = section.id }, onMove: moveSection, showsLabel: true).frame(height: 34)
-                    Button { var hidden = direction.hiddenSections ?? []; hidden.insert(section.id); board.directions[directionIndex].hiddenSections = hidden; save() } label: { Image(systemName: "minus") }.buttonStyle(.borderless).help("Remove section")
+            GeometryReader { geometry in
+                ZStack(alignment: .topTrailing) {
+                    CanvasPreview(plan: CanvasPlan(arrangement: plan.sections, width: geometry.size.width), directionID: direction.id, selectedSection: selectedSection, onSelect: { selectedSection = $0 }, onMove: moveSection)
+                    VStack(spacing: 0) {
+                        ForEach(plan.sections) { section in
+                            Button { var hidden = direction.hiddenSections ?? []; hidden.insert(section.id); board.directions[directionIndex].hiddenSections = hidden; save("Remove Section") } label: { Image(systemName: "minus").frame(width: 28, height: 42) }.buttonStyle(.borderless).help("Remove " + section.title).accessibilityLabel("Remove " + section.title)
+                        }
+                    }
                 }
-            }
-            Text("Drag sections here or on the canvas.").font(.caption2).foregroundStyle(.secondary)
+            }.frame(height: Double(plan.sections.count) * 42)
+            Text(direction.canvas == .imported ? "Drag here to change layer stacking order; drag on the canvas to move a layer." : "Drag sections here or on the canvas.").font(.caption2).foregroundStyle(.secondary)
         }
     }
-    func chooseFont(_ name: String) { var s = style; s.fontName = name; s.axes = library.pro.axes[name] ?? [:]; s.features = library.pro.features[name] ?? [:]; board.directions[directionIndex].styles[role.rawValue] = s; save() }
+    func chooseFont(_ name: String) { var s = style; s.fontName = name; s.axes = library.pro.axes[name] ?? [:]; s.features = library.pro.features[name] ?? [:]; setStyle(s); save("Change Font") }
     func numeric(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) { HStack { Text(title); Spacer(); TextField(title, value: Binding(get: { value.wrappedValue }, set: { if $0.isFinite { value.wrappedValue = min(range.upperBound, max(range.lowerBound, $0)) } }), format: .number.precision(.fractionLength(0...2))).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width: 65); Text(unit).foregroundStyle(.secondary) }.font(.caption); Slider(value: value, in: range) }
+        VStack(alignment: .leading, spacing: 4) { HStack { Text(title); Spacer(); TextField(title, value: Binding(get: { value.wrappedValue }, set: { if $0.isFinite { value.wrappedValue = min(range.upperBound, max(range.lowerBound, $0)) } }), format: .number.precision(.fractionLength(0...2))).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width: 65).onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }; Text(unit).foregroundStyle(.secondary) }.font(.caption); Slider(value: value, in: range) }
     }
     var axesEditor: some View {
         let axes = CTFontCopyVariationAxes(CTFontCreateWithName(style.fontName as CFString, 24, nil)) as? [[String: Any]] ?? []
         return ForEach(Array(axes.enumerated()), id: \.offset) { _, axis in
             if let id = axis[kCTFontVariationAxisIdentifierKey as String] as? Int, let low = axis[kCTFontVariationAxisMinimumValueKey as String] as? Double, let high = axis[kCTFontVariationAxisMaximumValueKey as String] as? Double, let initial = axis[kCTFontVariationAxisDefaultValueKey as String] as? Double, high > low {
-                numeric(axis[kCTFontVariationAxisNameKey as String] as? String ?? "Axis", value: Binding(get: { style.axes[id] ?? initial }, set: { var s = style; s.axes[id] = $0; board.directions[directionIndex].styles[role.rawValue] = s; save() }), range: low...high, unit: "")
+                numeric(axis[kCTFontVariationAxisNameKey as String] as? String ?? "Axis", value: Binding(get: { style.axes[id] ?? initial }, set: { var s = style; s.axes[id] = $0; setStyle(s); save() }), range: low...high, unit: "")
             }
         }
     }
     func colorPicker(_ title: String, key: WritableKeyPath<TypeDirection, String>) -> some View {
-        ColorPicker(title, selection: Binding(get: { Color(nsColor: NSColor(hex: direction[keyPath: key])) }, set: { board.directions[directionIndex][keyPath: key] = NSColor($0).rgbHex; save() }), supportsOpacity: false)
+        ColorPicker(title, selection: Binding(get: { Color(nsColor: NSColor(hex: key == \TypeDirection.ink ? importedLayerIndex.flatMap { direction.importedLayout?.layers[$0].color } ?? direction.ink : direction[keyPath: key])) }, set: { if key == \TypeDirection.ink, let index = importedLayerIndex { board.directions[directionIndex].importedLayout?.layers[index].color = NSColor($0).rgbHex } else { board.directions[directionIndex][keyPath: key] = NSColor($0).rgbHex }; save() }), supportsOpacity: false)
     }
     func exportPDF() {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.pdf]; panel.nameFieldStringValue = board.name + " — " + direction.name + ".pdf"
@@ -328,6 +410,35 @@ struct TypeBoardEditor: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do { let folder = try FigmaLayoutExporter.write(board: board, parent: url); status = "Figma package exported. See README in the package for import steps."; NSWorkspace.shared.activateFileViewerSelecting([folder]) } catch { status = "Figma export failed: " + error.localizedDescription }
     }
+}
+
+/// Preserve the designer's inspector width across boards, without replacing native split-view behavior.
+struct StudioSplitPosition: NSViewRepresentable {
+    final class Anchor: NSView {
+        private var observation: NSObjectProtocol?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.observation == nil else { return }
+                var ancestor = self.superview
+                while let view = ancestor {
+                    if let split = view as? NSSplitView {
+                        let saved = UserDefaults.standard.double(forKey: "studioInspectorWidth")
+                        split.setPosition(min(500, max(240, saved == 0 ? 310 : saved)), ofDividerAt: 0)
+                        self.observation = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: split, queue: .main) { [weak split] _ in
+                            if let width = split?.subviews.first?.frame.width, width >= 240 { UserDefaults.standard.set(min(500, width), forKey: "studioInspectorWidth") }
+                        }
+                        return
+                    }
+                    ancestor = view.superview
+                }
+            }
+        }
+        deinit { if let observation { NotificationCenter.default.removeObserver(observation) } }
+    }
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) {}
 }
 
 struct CanvasElement {
@@ -345,8 +456,32 @@ struct CanvasPlan {
     var sections: [CanvasSection] = []
     var size: CGSize = .zero
     var paper: NSColor
+    init(arrangement: [CanvasSection], width: Double) {
+        paper = .clear; size = CGSize(width: width, height: Double(arrangement.count) * 42)
+        for (index, section) in arrangement.enumerated() {
+            let y = Double(index) * 42
+            sections.append(CanvasSection(id: section.id, title: section.title, rect: CGRect(x: 0, y: y, width: width, height: 42)))
+            let text = NSAttributedString(string: "≡   " + section.title, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
+            elements.append(CanvasElement(rect: CGRect(x: 10, y: y + 13, width: max(1, width - 42), height: 20), text: text, sectionID: section.id))
+        }
+    }
     init(direction d: TypeDirection) {
         paper = NSColor(hex: d.paper)
+        if d.canvas == .imported {
+            size = CGSize(width: d.width, height: d.importedLayout?.height ?? 480)
+            for layer in d.importedLayout?.layers ?? [] where !(d.hiddenSections ?? []).contains(layer.id) {
+                let color = NSColor(hex: layer.color).withAlphaComponent(layer.opacity)
+                var rect = layer.rect
+                if let style = layer.style {
+                    let text = style.attributed(color: color)
+                    rect.size.height = max(rect.height, ceil(text.boundingRect(with: CGSize(width: max(1, rect.width), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 4)
+                    elements.append(CanvasElement(rect: rect, text: text, sectionID: layer.id, style: style))
+                } else { elements.append(CanvasElement(rect: rect, color: color, radius: layer.radius, sectionID: layer.id)) }
+                sections.append(CanvasSection(id: layer.id, title: layer.name, rect: rect))
+                size.height = max(size.height, rect.maxY)
+            }
+            return
+        }
         let w = min(1600, max(320, d.width)), margin = w < 500 ? 24.0 : 56.0, usable = w - margin * 2
         let ink = NSColor(hex: d.ink), accent = NSColor(hex: d.accent)
         var y = margin
@@ -371,6 +506,7 @@ struct CanvasPlan {
         func rule() { elements.append(CanvasElement(rect: CGRect(x: margin, y: y, width: usable, height: 1), color: ink.withAlphaComponent(0.18))); y += 26 }
         func button() { let start = y; let h = text(.label, x: margin + 18, at: start + 13, width: usable - 36); elements.insert(CanvasElement(rect: CGRect(x: margin, y: start, width: usable, height: h + 26), color: accent, radius: 7), at: elements.count - 1); y = start + h + 50 }
         switch d.canvas {
+        case .imported: break
         case .custom:
             for (index, role) in (d.blocks ?? TypeRole.allCases).enumerated() { section("block-\(index)", role.rawValue); _ = text(role) }
         case .website:
@@ -440,38 +576,54 @@ struct CanvasPlan {
         size = CGSize(width: w, height: max(480, y + margin))
     }
 }
-final class CanvasNativeView: NSView, NSDraggingSource {
+final class CanvasNativeView: NSView {
     var plan: CanvasPlan
     var zoom = 1.0
     var directionID: UUID?
     var selectedSection: String?
     var onSelect: ((String) -> Void)?
     var onMove: ((String, String, Bool) -> Void)?
-    private var dragSection: CanvasSection?
+    var onTranslate: ((String, Double, Double) -> Void)?
     private var insertionY: Double?
+    private var translation = NSPoint.zero
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
     init(plan: CanvasPlan) { self.plan = plan; super.init(frame: CGRect(origin: .zero, size: plan.size)); registerForDraggedTypes([.string]) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
     override func resetCursorRects() { if directionID != nil { addCursorRect(bounds, cursor: .openHand) } }
-    func section(at point: NSPoint) -> CanvasSection? { let y = point.y / max(0.01, zoom); return plan.sections.first { y >= $0.rect.minY && y < $0.rect.maxY } }
+    func section(at point: NSPoint) -> CanvasSection? { let local = NSPoint(x: point.x / max(0.01, zoom), y: point.y / max(0.01, zoom)); return plan.sections.last { $0.rect.contains(local) } }
     override func mouseDown(with event: NSEvent) {
-        guard directionID != nil else { return }
-        dragSection = section(at: convert(event.locationInWindow, from: nil))
-        if let item = dragSection { selectedSection = item.id; onSelect?(item.id); needsDisplay = true }
+        guard directionID != nil, let window else { return }
+        window.makeFirstResponder(self)
+        let origin = convert(event.locationInWindow, from: nil)
+        guard let item = section(at: origin) else { return }
+        selectedSection = item.id; needsDisplay = true
+        var moved = false
+        // Keep selection changes out of SwiftUI until tracking ends: changing the inspector
+        // during mouseDown can rebuild the hosted canvas before AppKit delivers the drag.
+        defer { insertionY = nil; translation = .zero; needsDisplay = true }
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown], until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            if next.type == .keyDown { if next.keyCode == 53 { return }; continue }
+            let point = convert(next.locationInWindow, from: nil)
+            moved = moved || hypot(point.x - origin.x, point.y - origin.y) > 4
+            let target = dropTarget(at: point)
+            if next.type == .leftMouseUp {
+                onSelect?(item.id)
+                if moved, bounds.contains(point) { if let onTranslate { onTranslate(item.id, (point.x - origin.x) / zoom, (point.y - origin.y) / zoom) } else if let target { onMove?(item.id, target.id, point.y / zoom < target.rect.midY) } }
+                return
+            }
+            if moved {
+                _ = autoscroll(with: next)
+                if onTranslate != nil { translation = NSPoint(x: (point.x - origin.x) / zoom, y: (point.y - origin.y) / zoom) }
+                else { insertionY = target.map { point.y / zoom < $0.rect.midY ? $0.rect.minY : $0.rect.maxY } }
+                needsDisplay = true; displayIfNeeded()
+            }
+        }
     }
-    override func mouseDragged(with event: NSEvent) {
-        guard let id = directionID, let item = dragSection else { return }
-        dragSection = nil
-        let token = id.uuidString + "|" + item.id
-        let draggingItem = NSDraggingItem(pasteboardWriter: token as NSString)
-        let image = NSImage(size: NSSize(width: 180, height: 32))
-        image.lockFocus(); NSColor.controlBackgroundColor.setFill(); NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 180, height: 32), xRadius: 6, yRadius: 6).fill(); (item.title as NSString).draw(at: NSPoint(x: 10, y: 8), withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]); image.unlockFocus()
-        let point = convert(event.locationInWindow, from: nil)
-        draggingItem.setDraggingFrame(NSRect(x: point.x, y: point.y, width: 180, height: 32), contents: image)
-        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    private func dropTarget(at point: NSPoint) -> CanvasSection? {
+        if let hit = section(at: point) { return hit }
+        return point.y / max(0.01, zoom) < (plan.sections.first?.rect.minY ?? 0) ? plan.sections.first : plan.sections.last
     }
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .move }
-    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
     private func source(_ sender: NSDraggingInfo) -> String? {
         guard let directionID, let value = sender.draggingPasteboard.string(forType: .string), value.hasPrefix(directionID.uuidString + "|") else { return nil }
         let id = String(value.dropFirst(37)); return plan.sections.contains { $0.id == id } ? id : nil
@@ -480,15 +632,16 @@ final class CanvasNativeView: NSView, NSDraggingSource {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard source(sender) != nil else { return [] }
         let point = convert(sender.draggingLocation, from: nil)
-        guard let target = section(at: point) else { insertionY = nil; needsDisplay = true; return [] }
+        guard let target = dropTarget(at: point) else { insertionY = nil; needsDisplay = true; return [] }
         insertionY = point.y / zoom < target.rect.midY ? target.rect.minY : target.rect.maxY; needsDisplay = true; return .move
     }
     override func draggingExited(_ sender: NSDraggingInfo?) { insertionY = nil; needsDisplay = true }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { source(sender) != nil }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         defer { insertionY = nil; needsDisplay = true }
         guard let source = source(sender) else { return false }
         let point = convert(sender.draggingLocation, from: nil)
-        guard let target = section(at: point) else { return false }
+        guard let target = dropTarget(at: point) else { return false }
         onMove?(source, target.id, point.y / zoom < target.rect.midY); return true
     }
     override func draw(_ dirtyRect: NSRect) {
@@ -501,7 +654,7 @@ final class CanvasNativeView: NSView, NSDraggingSource {
             element.text?.draw(with: element.rect, options: [.usesLineFragmentOrigin, .usesFontLeading])
         }
         if directionID != nil, let selected = plan.sections.first(where: { $0.id == selectedSection }) {
-            NSColor.controlAccentColor.withAlphaComponent(0.7).setStroke(); let border = NSBezierPath(rect: selected.rect.insetBy(dx: 1 / zoom, dy: 0)); border.lineWidth = 1 / zoom; border.stroke()
+            NSColor.controlAccentColor.withAlphaComponent(0.7).setStroke(); let border = NSBezierPath(rect: selected.rect.offsetBy(dx: translation.x, dy: translation.y).insetBy(dx: 1 / zoom, dy: 0)); border.lineWidth = 1 / zoom; border.stroke()
         }
         if let insertionY { NSColor.controlAccentColor.setFill(); NSRect(x: 0, y: insertionY, width: plan.size.width, height: 3 / zoom).fill() }
     }
@@ -513,8 +666,9 @@ struct CanvasPreview: NSViewRepresentable {
     var selectedSection: String?
     var onSelect: ((String) -> Void)?
     var onMove: ((String, String, Bool) -> Void)?
+    var onTranslate: ((String, Double, Double) -> Void)?
     func makeNSView(context: Context) -> CanvasNativeView { CanvasNativeView(plan: plan) }
-    func updateNSView(_ view: CanvasNativeView, context: Context) { view.plan = plan; view.zoom = zoom; view.directionID = directionID; view.selectedSection = selectedSection; view.onSelect = onSelect; view.onMove = onMove; view.frame.size = CGSize(width: plan.size.width * zoom, height: plan.size.height * zoom); view.setAccessibilityElement(true); view.setAccessibilityLabel(plan.elements.compactMap { $0.text?.string }.joined(separator: ". ")); view.needsDisplay = true }
+    func updateNSView(_ view: CanvasNativeView, context: Context) { view.plan = plan; view.zoom = zoom; view.directionID = directionID; view.selectedSection = selectedSection; view.onSelect = onSelect; view.onMove = onMove; view.onTranslate = onTranslate; view.frame.size = CGSize(width: plan.size.width * zoom, height: plan.size.height * zoom); view.setAccessibilityElement(true); view.setAccessibilityLabel(plan.elements.compactMap { $0.text?.string }.joined(separator: ". ")); view.needsDisplay = true }
 }
 
 struct SectionDragTarget: View {

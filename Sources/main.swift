@@ -402,7 +402,7 @@ struct ContentView: View {
                         Button("Alphabet & numbers") { preview = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789" }
                         ForEach(WritingSystem.allCases, id: \.self) { writing in Button(writing.rawValue) { preview = writing.sample } }
                         Button("Family names") { preview = "{family}" }
-                    } label: { Image(systemName: "text.quote") }.menuStyle(.borderlessButton).frame(width: 24)
+                    } label: { Image(systemName: "text.quote") }.shelfIconMenu().help("Preview text presets")
                     Divider().frame(height: 20)
                     Text("Aa").font(.system(size: 12))
                     Slider(value: $size, in: 16...160, step: 1).frame(width: 135)
@@ -601,7 +601,7 @@ struct ContentView: View {
                 Button { library.overlayName = library.chosenFace(family).name } label: {
                     Text("AB").font(.system(size: 13, weight: .bold)).foregroundStyle(library.overlayName == library.chosenFace(family).name ? Color.cyan : Color.primary).frame(width: 30, height: 30)
                 }.buttonStyle(.plain).help("Compare this font over every preview in the library").accessibilityLabel("Use \(family.name) as library overlay")
-                Menu { actions(family) } label: { Image(systemName: "ellipsis").font(.system(size: 17)).frame(height: 30) }.menuStyle(.borderlessButton).frame(width: 30)
+                Menu { actions(family) } label: { Image(systemName: "ellipsis").font(.system(size: 17)) }.shelfIconMenu().help("Font actions")
             }
             let face = library.chosenFace(family)
             if !library.overlayName.isEmpty {
@@ -682,6 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for (title, action, key) in [("Undo", "undo:", "z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] { editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key) }
         let redo = editMenu.insertItem(withTitle: "Redo", action: NSSelectorFromString("redo:"), keyEquivalent: "z", at: 1)
         redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.item(at: 0)?.target = self; redo.target = self
         editMenu.addItem(.separator())
         addCommand("Find Fonts…", "find", to: editMenu, key: "f")
         addCommand("Select Visible Families", "select", to: editMenu)
@@ -733,6 +734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item.target = self; item.representedObject = command
     }
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { item.title = activeUndoManager?.undoMenuItemTitle ?? "Undo"; return activeUndoManager?.canUndo == true }
+        if item.action == #selector(redo(_:)) { item.title = activeUndoManager?.redoMenuItemTitle ?? "Redo"; return activeUndoManager?.canRedo == true }
         guard let command = item.representedObject as? String else { return true }
         guard window.isKeyWindow, window.attachedSheet == nil else { return false }
         let selected = library.families.filter { library.selectedFamilies.contains($0.name) }
@@ -747,6 +750,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         return true
     }
+    var activeUndoManager: UndoManager? {
+        if let text = window.firstResponder as? NSTextView, let manager = text.undoManager, manager.canUndo || manager.canRedo { return manager }
+        return library.workspace ? library.studio.undoManager : nil
+    }
+    @objc func undo(_ sender: Any?) { activeUndoManager?.undo() }
+    @objc func redo(_ sender: Any?) { activeUndoManager?.redo() }
     @objc func runMenuCommand(_ sender: NSMenuItem) {
         guard validateMenuItem(sender), let command = sender.representedObject as? String else { return }
         let selected = library.families.filter { library.selectedFamilies.contains($0.name) }

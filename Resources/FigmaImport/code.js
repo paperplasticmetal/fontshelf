@@ -49,9 +49,10 @@ async function importLayout(data, api) {
           node.paragraphSpacing = e.paragraphSpacing; node.paragraphIndent = e.paragraphIndent;
           node.textAlignHorizontal = e.alignment;
           node.textDecoration = e.underline ? 'UNDERLINE' : e.strikethrough ? 'STRIKETHROUGH' : 'NONE';
-          node.textAutoResize = 'HEIGHT'; node.resize(e.width, e.height);
+          node.resize(e.width, e.height); node.textAutoResize = 'HEIGHT';
           if (e.wordSpacing || e.kerning === false || (e.features && Object.keys(e.features).length) || (e.underline && e.strikethrough)) warnings.add('Review word spacing, kerning, OpenType or combined decorations in Figma; these settings are retained as layer metadata.');
-          node.setPluginData('fontshelfTypography', JSON.stringify({ fontName: e.fontName, axes: e.axes, features: e.features, wordSpacing: e.wordSpacing, kerning: e.kerning, underline: e.underline, strikethrough: e.strikethrough }));
+          // Shared, namespaced metadata also works for an unpublished local manifest without an ID.
+          node.setSharedPluginData('fontshelf', 'typography', JSON.stringify({ fontName: e.fontName, axes: e.axes, features: e.features, wordSpacing: e.wordSpacing, kerning: e.kerning, underline: e.underline, strikethrough: e.strikethrough }));
         } else { node = api.createRectangle(); frame.appendChild(node); node.resize(e.width, e.height); node.cornerRadius = e.radius; }
         node.name = e.section + (e.role ? ' / ' + e.role : ' / Shape'); node.x = e.x; node.y = e.y; node.fills = paint(e.color);
       }
@@ -61,15 +62,75 @@ async function importLayout(data, api) {
     return 'Imported ' + created.length + ' editable frames.' + (warnings.size ? '\n\n' + [...warnings].join('\n') : '\nCheck line breaks before final handoff; Figma and macOS use different text renderers.');
   } catch (error) { for (const node of created) { if (!node.removed) node.remove(); } throw error; }
 }
+function exportSelection(api) {
+  const selected = api.currentPage.selection.filter(n => n.type === 'FRAME' || n.type === 'COMPONENT');
+  if (!selected.length || selected.length > 30) throw Error('Select between 1 and 30 frames in Figma first.');
+  const warnings = new Set();
+  function solid(node, opacity) {
+    const fills = Array.isArray(node.fills) ? node.fills.filter(p => p.visible !== false) : [];
+    const paint = fills.find(p => p.type === 'SOLID');
+    if (fills.some(p => p.type !== 'SOLID') || fills.length > 1) warnings.add(node.name + ': gradients, images and extra fills are omitted.');
+    return paint ? { ...paint.color, a: opacity * (paint.opacity === undefined ? 1 : paint.opacity) } : null;
+  }
+  const frames = selected.map(root => {
+    const elements = [], origin = root.absoluteTransform;
+    if (Math.abs(origin[0][1]) > .001 || Math.abs(origin[1][0]) > .001) throw Error('Unrotate the selected frame before exporting: ' + root.name);
+    function visit(node, parentOpacity) {
+      if (node.visible === false) return;
+      const opacity = parentOpacity * (node.opacity === undefined ? 1 : node.opacity), t = node.absoluteTransform;
+      if (node.isMask) { warnings.add(node.name + ': masks are omitted.'); return; }
+      if (Math.abs(t[0][1]) > .001 || Math.abs(t[1][0]) > .001) { warnings.add(node.name + ': rotated layers are omitted.'); return; }
+      if ((node.effects || []).some(e => e.visible !== false) || (node.strokes || []).length) warnings.add(node.name + ': effects and strokes are omitted.');
+      if (node.layoutMode && node.layoutMode !== 'NONE') warnings.add(node.name + ': auto layout is captured as fixed positions.');
+      const color = solid(node, opacity);
+      const base = { name: node.name, section: node.name, x: t[0][2] - origin[0][2], y: t[1][2] - origin[1][2], width: Math.max(.01, node.width), height: Math.max(.01, node.height), color };
+      if (base.x < 0 || base.y < 0) { warnings.add(node.name + ': layers outside the top or left of the frame are omitted.'); return; }
+      if (node.type === 'TEXT') {
+        if (!node.characters || !color) { if (node.characters) warnings.add(node.name + ': text without a solid fill is omitted.'); return; }
+        const font = node.fontName === api.mixed ? node.getRangeFontName(0, 1) : node.fontName;
+        const size = node.fontSize === api.mixed ? node.getRangeFontSize(0, 1) : node.fontSize;
+        const line = node.lineHeight === api.mixed ? node.getRangeLineHeight(0, 1) : node.lineHeight;
+        const spacing = node.letterSpacing === api.mixed ? node.getRangeLetterSpacing(0, 1) : node.letterSpacing;
+        if ([node.fontName, node.fontSize, node.lineHeight, node.letterSpacing, node.fills, node.textCase, node.textDecoration].some(v => v === api.mixed)) warnings.add(node.name + ': mixed text styling uses its first text style.');
+        if (node.textAlignVertical && node.textAlignVertical !== 'TOP') warnings.add(node.name + ': vertical alignment uses top alignment.');
+        let text = node.characters;
+        if (node.textCase === 'UPPER') text = text.toUpperCase(); else if (node.textCase === 'LOWER') text = text.toLowerCase();
+        else if (node.textCase && node.textCase !== 'ORIGINAL') warnings.add(node.name + ': text case needs review.');
+        elements.push({ ...base, kind: 'text', text, fontFamily: font.family, fontStyle: font.style, fontSize: size,
+          lineHeight: line.unit === 'PIXELS' ? line.value : line.unit === 'PERCENT' ? size * line.value / 100 : size * 1.35,
+          letterSpacing: spacing.unit === 'PERCENT' ? size * spacing.value / 100 : spacing.value,
+          paragraphSpacing: typeof node.paragraphSpacing === 'number' ? node.paragraphSpacing : 0,
+          paragraphIndent: typeof node.paragraphIndent === 'number' ? node.paragraphIndent : 0,
+          alignment: node.textAlignHorizontal, underline: node.textDecoration === 'UNDERLINE', strikethrough: node.textDecoration === 'STRIKETHROUGH', axes: font.variationSettings || {}, features: {}, kerning: true });
+      } else if (node.type === 'RECTANGLE' || ['FRAME', 'COMPONENT', 'INSTANCE', 'GROUP'].includes(node.type)) {
+        if (color) elements.push({ ...base, kind: 'rectangle', radius: typeof node.cornerRadius === 'number' ? node.cornerRadius : 0 });
+        if (node.type === 'INSTANCE' || node.type === 'COMPONENT') warnings.add(node.name + ': component is imported as independent editable layers.');
+        if (node.clipsContent) warnings.add(node.name + ': nested clipping needs review.');
+        for (const child of node.children || []) visit(child, opacity);
+      } else { warnings.add(node.name + ': ' + node.type.toLowerCase() + ' is not supported yet.'); }
+      if (elements.length > 5000) throw Error('A frame exceeds the 5,000-layer limit. Export a smaller selection.');
+    }
+    if (root.layoutMode && root.layoutMode !== 'NONE') warnings.add(root.name + ': auto layout is captured as fixed positions.');
+    for (const child of root.children) visit(child, root.opacity === undefined ? 1 : root.opacity);
+    return { name: root.name, width: root.width, height: root.height, paper: solid(root, 1) || { r: 1, g: 1, b: 1, a: 1 }, elements };
+  });
+  return { format: 'fontshelf-figma', version: 1, name: api.root.name, frames, warnings: [...warnings] };
+}
 if (typeof figma !== 'undefined') {
-  figma.showUI(__html__, { width: 440, height: 440 });
+  figma.showUI(__html__, { width: 460, height: 560 });
   let busy = false;
   figma.ui.onmessage = async message => {
-    if (!message || message.type !== 'import' || busy) return;
+    if (!message || busy) return;
+    if (message.type === 'export') {
+      try { figma.ui.postMessage({ type: 'export', payload: exportSelection(figma) }); }
+      catch (error) { figma.ui.postMessage({ type: 'result', message: error.message }); }
+      return;
+    }
+    if (message.type !== 'import') return;
     busy = true;
     try { figma.ui.postMessage({ type: 'result', message: await importLayout(message.payload, figma) }); }
     catch (error) { figma.ui.postMessage({ type: 'result', message: 'Import failed; new frames removed. ' + error.message }); }
     finally { busy = false; }
   };
 }
-if (typeof module !== 'undefined') module.exports = { validate, importLayout };
+if (typeof module !== 'undefined') module.exports = { validate, importLayout, exportSelection };

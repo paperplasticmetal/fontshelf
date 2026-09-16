@@ -72,11 +72,49 @@ enum StudioChecks {
         store.update(space: space, board: board)
         let restored = StudioStore(url: store.url)
         let restoredBoard = restored.state.spaces[0].boards[0]
+        let reverseData = try JSONSerialization.data(withJSONObject: FigmaLayoutExporter.payload(board: board))
+        let importedBoard = try FigmaLayoutImporter.board(data: reverseData, fonts: catalog.flatMap(\.faces))
+        try verify(importedBoard.isValid && importedBoard.directions.count == board.directions.count, "Figma typeboard failed validation")
+        let importedFirst = importedBoard.directions[0]
+        try verify(importedFirst.canvas == .imported && importedFirst.importedLayout?.layers.filter { $0.style != nil }.count == CanvasPlan(direction: board.directions[0]).elements.filter { $0.text != nil }.count)
+        try verify(importedFirst.importedLayout?.layers.first?.style?.fontName == "Helvetica", "Imported font mapping failed")
+        let importedEncoded = try JSONEncoder().encode(importedBoard)
+        let decodedImported = try JSONDecoder().decode(TypeBoard.self, from: importedEncoded)
+        try verify(decodedImported == importedBoard, "Imported geometry/style persistence failed")
         try verify(restoredBoard.directions.count == 2 && restoredBoard.selectedDirection == duplicate.id)
         try verify(restoredBoard.directions[0].style(.body).fontName == "Helvetica")
         try verify(restoredBoard.directions[1] == duplicate, "Direction settings were lost on reload")
         try verify(restored.focusedSpace == space && restored.focusedBoard == boardID, "Selected workspace was lost on reload")
         try verify(restoredBoard.checkpoints?.first?.direction == duplicate, "Checkpoint settings were lost on reload")
+        restored.undoManager.groupsByEvent = false
+        var edited = restoredBoard
+        edited.directions[1].hiddenSections = ["Custom layout:block-0"]
+        restored.update(space: space, board: edited, action: "Remove Section")
+        try verify(restored.undoManager.canUndo && restored.undoManager.undoActionName == "Remove Section")
+        restored.undoManager.undo()
+        try verify(restored.state.spaces[0].boards[0] == restoredBoard, "Undo did not restore the board")
+        try verify(StudioStore(url: restored.url).state.spaces[0].boards[0] == restoredBoard, "Undo was not persisted")
+        restored.undoManager.redo()
+        try verify(restored.state.spaces[0].boards[0] == edited, "Redo did not restore the edit")
+        restored.undoManager.removeAllActions()
+        edited.selectedDirection = edited.directions[0].id
+        restored.update(space: space, board: edited)
+        try verify(!restored.undoManager.canUndo, "Direction navigation polluted edit history")
+        let beforeTyping = edited
+        edited.directions[0].styles[TypeRole.display.rawValue]!.size = 8
+        restored.update(space: space, board: edited, action: "Change Size")
+        edited.directions[0].styles[TypeRole.display.rawValue]!.size = 80
+        restored.update(space: space, board: edited, action: "Change Size")
+        restored.undoManager.undo()
+        try verify(restored.state.spaces[0].boards[0] == beforeTyping, "Numeric typing was not coalesced")
+        restored.undoManager.redo()
+        try verify(restored.state.spaces[0].boards[0] == edited, "Coalesced redo lost the final value")
+        restored.removeBoard(space: space, id: edited.id)
+        try verify(restored.state.spaces[0].boards.isEmpty)
+        restored.undoManager.undo()
+        try verify(restored.state.spaces[0].boards.first == edited && restored.focusedBoard == edited.id, "Deleted typeboard was not recovered")
+        restored.undoManager.redo()
+        try verify(restored.state.spaces[0].boards.isEmpty, "Redo deletion did not remove the typeboard")
         let corruptURL = root.appendingPathComponent("corrupt.json"), corrupt = Data("broken".utf8)
         try corrupt.write(to: corruptURL)
         let broken = StudioStore(url: corruptURL)

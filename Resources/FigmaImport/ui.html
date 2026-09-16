@@ -3,12 +3,17 @@
 body { font: 13px system-ui; padding: 20px; color: #222; background: #fafafa; }
 h2 { font-size: 18px; margin-top: 0; } p { line-height: 1.5; color: #555; }
 button { margin-top: 16px; border: 0; border-radius: 6px; padding: 10px 16px; background: #222; color: white; } button:disabled { opacity: .4; }
-#status { white-space: pre-wrap; max-height: 190px; overflow: auto; }
+#status { white-space: pre-wrap; max-height: 150px; overflow: auto; } hr { border: 0; border-top: 1px solid #ddd; margin: 24px 0; } a { color: #2356b6; } button { cursor: pointer; }
 </style></head><body>
 <h2>Import FontShelf typeboard</h2>
 <p>Choose the layout.fontshelf.json file. Each direction becomes a separate frame with editable text and shapes. Fonts must be available in Figma.</p>
 <input id="file" type="file" accept=".json"><br>
 <button id="import" disabled>Import layouts</button>
+<hr>
+<h2>Bring Figma into FontShelf</h2>
+<p>Select frames on the canvas. Text, solid rectangles and fixed layer positions become an editable typeboard. Unsupported elements are listed for review.</p>
+<button id="export">Export selected frames</button>
+<p><a id="download" hidden>Save FontShelf typeboard JSON</a></p>
 <p id="status" role="status"></p>
 <script>
 let payload = null;
@@ -19,5 +24,16 @@ file.onchange = async () => {
   catch (error) { status.textContent = error.message; }
 };
 button.onclick = () => { button.disabled = true; status.textContent = 'Importing…'; parent.postMessage({ pluginMessage: { type: 'import', payload } }, '*'); };
-onmessage = event => { const msg = event.data.pluginMessage; if (!msg || msg.type !== 'result') return; status.textContent = msg.message; button.disabled = false; };
+document.getElementById('export').onclick = () => { document.getElementById('download').hidden = true; status.textContent = 'Reading selected frames…'; parent.postMessage({ pluginMessage: { type: 'export' } }, '*'); };
+let downloadURL;
+onmessage = event => {
+  const msg = event.data.pluginMessage; if (!msg) return;
+  if (msg.type === 'result') { status.textContent = msg.message; button.disabled = !payload; }
+  if (msg.type === 'export') {
+    if (downloadURL) URL.revokeObjectURL(downloadURL);
+    downloadURL = URL.createObjectURL(new Blob([JSON.stringify(msg.payload, null, 2)], { type: 'application/json' }));
+    const link = document.getElementById('download'); link.href = downloadURL; link.download = 'Figma-typeboard.fontshelf.json'; link.hidden = false;
+    status.textContent = msg.payload.frames.length + ' frames ready. Save the JSON, then use Spaces → Import → Figma typeboard in FontShelf.\n\n' + (msg.payload.warnings || []).join('\n');
+  }
+};
 </script></body></html>

@@ -212,9 +212,11 @@ struct DetailView: View {
                 Button("Compare in library") { library.overlayName = face.name; dismiss() }
                 Spacer(); Text(library.category(family).rawValue).foregroundStyle(.secondary)
             }
-            Picker("Inspector", selection: $tab) { ForEach(["All styles", "Preview", "Body layout", "OpenType", "Context", "Adobe scripts"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
+            Picker("Inspector", selection: $tab) { ForEach(["All styles", "Preview", "Glyphs", "Waterfall", "Body layout", "OpenType", "Context", "Adobe scripts"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
             Group {
                 switch tab {
+                case "Glyphs": GlyphBrowser(face: face, axes: axesBinding.wrappedValue)
+                case "Waterfall": WaterfallView(face: face, text: preview, axes: axesBinding.wrappedValue, features: featureBinding.wrappedValue)
                 case "All styles":
                     VStack {
                         HStack {

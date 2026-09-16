@@ -4,7 +4,7 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.13.1 (build 21).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.14.0 (build 22).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 ## Features
 
@@ -16,6 +16,14 @@ Native macOS font browsing, previews, and organization, built with SwiftUI, AppK
 - Google variable fonts with real previews before download. Preview text stays local; public font files are fetched from Google's repository on GitHub.
 - Original-file export and temporary session activation. Adobe integration exports JSX scripts for manual use, not direct application control.
 - Light/dark appearances, India yellow accents, and native Liquid Glass on supported macOS versions.
+- Spaces separate from collections, pairing typeboards, saved directions and checkpoints. Tune seven type roles with font, variable axes, OpenType, spacing, text and color settings.
+- Website, product UI, editorial, poster, type-system and ordered custom-layout canvases; responsive widths, side-by-side directions, PDF export and portable space files.
+- Unicode/glyph browsing and search, metrics, outline previews, SVG export/drag, waterfall previews and paginated specimen PDFs.
+- Nested tags with AND/OR inclusion and exclusion; font metadata table and individually confirmed exact-duplicate removal to Trash.
+- Recursive watched folders refreshed every three seconds while open, with opt-in temporary activation for other apps using original files. No copying into system font folders.
+- Daily local state backups and merge-based backup import. Folder access permissions must be granted separately.
+
+This is not complete Typeface feature parity. Direct Adobe/Figma plug-ins, document-triggered activation and cloud team collaboration are not implemented. Session activation is verified in the local development build; App Store sandbox verification remains outstanding.
 
 ## Build and run
 

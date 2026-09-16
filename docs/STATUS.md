@@ -1,13 +1,16 @@
 # Build and verification status
 
-Current source: **0.13.1, build 21**. Updated 2026-09-15.
+Current source: **0.14.0, build 22**. Updated 2026-09-16.
 
 | Check | Status |
 | --- | --- |
 | Local optimized Apple Silicon build, Swift warnings as errors | Passed |
 | Built-in regression suite | Passed |
 | Layout checks | 2,640 cases across 528 available styles on the audit machine |
-| Xcode Release build, 0.13.1 | Passed |
+| Xcode Release build, 0.14.0 | Passed |
+| Spaces and canvas regression checks | Passed: independent directions, checkpoints, persistence and 24 canvas/viewport combinations |
+| Live folder watcher and session activation | Passed with a temporary copy of an existing Google font; visibility checked in a separate process, then deactivated and removed |
+| New designer UI | Website desktop/mobile comparison and Unicode lookup/metrics inspected locally |
 | Unsigned archive and asset catalog, 0.12.3 | Passed; archive not checked into source |
 | Sandbox/hardened-runtime clean launch and installed-font export, 0.12.3 | Passed |
 | Google preview UI, 0.13.1 | Installed and remotely loaded samples verified |
@@ -19,5 +22,9 @@ Current source: **0.13.1, build 21**. Updated 2026-09-15.
 Regression checks cover catalog/search/filtering, persistence and corrupt-data preservation, family merge/split and shortlist remapping, tags, variable settings, OpenType parsing and actual ligature changes, duplicate hashing, export collisions, and preview text integrity. Layout counts depend on fonts available on the machine. Tests do not download fonts or upload personal data.
 
 Manual checks do not certify every font/script or failure case. Offline preview failure, denied folder access after relocation/revocation, broader accessibility testing and clean second-device testing remain on the release checklist. Rebuild the signed distribution archive before any submission.
+
+The live activation check requires normal macOS execution outside the coding-tool sandbox. Session activation in the App Store sandbox has not been verified for 0.14.0. Watching runs only while the app is open. New tests also cover recursive folder replacements/removal, nested tag inclusion/exclusion, glyph SVG generation, long specimen pagination and backup merge. Test-runner crashes encountered during development were corrected; new studio checks report failures without intentionally trapping.
+
+Not complete Typeface parity: direct Adobe/Figma plug-ins, document-triggered activation, cloud collaboration and advanced color-font controls remain out of scope for this release. Custom canvases are ordered text blocks, not a freeform design editor.
 
 Local bundles are ad-hoc signed. They are not notarized downloads and are not App Store packages. A passing CI run does not guarantee App Review approval.

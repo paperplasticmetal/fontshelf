@@ -25,9 +25,10 @@ struct LibraryToolsView: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack { Text("Library tools").font(.title2); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
-            Picker("Tool", selection: $library.toolsTab) { ForEach(["Tags", "Families", "Duplicates", "Google Fonts", "Activation"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
+            Picker("Tool", selection: $library.toolsTab) { ForEach(["Tags", "Families", "Duplicates", "Google Fonts", "Activation", "Folders"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
             Group {
                 switch library.toolsTab {
+                case "Folders": WatchedFoldersView(library: library)
                 case "Families": FamilyEditorView(library: library)
                 case "Duplicates": DuplicateView(library: library)
                 case "Google Fonts": GoogleFontsView(library: library)
@@ -46,7 +47,7 @@ struct TagEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { Text("\(library.selectedFamilies.count) families · \(library.selectedFaces.count) styles selected"); Spacer(); Button("Select visible families") { library.selectedFamilies.formUnion(library.filtered.map(\.name)) }; Button("Clear selection") { library.selectedFamilies = [] } }
-            TextField("Tags separated by commas", text: $input).textFieldStyle(.roundedBorder)
+            TextField("Tags separated by commas; use / for nested tags", text: $input).textFieldStyle(.roundedBorder)
             HStack {
                 Button("Add tags") { apply(remove: false) }.disabled(entries.isEmpty || library.selectedFaces.isEmpty)
                 Button("Remove tags") { apply(remove: true) }.disabled(entries.isEmpty || library.selectedFaces.isEmpty)
@@ -126,14 +127,14 @@ struct DuplicateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack { Button(busy ? "Scanning…" : "Scan font files") { scan() }.disabled(busy); Picker("Match", selection: $exact) { Text("Identical file contents").tag(true); Text("Same PostScript name").tag(false) }.pickerStyle(.segmented); if busy { ProgressView().controlSize(.small) } }
-            Text("Scans catalog file locations and imported folders. Same-name matches may be different versions or formats. No files are removed.").font(.caption).foregroundStyle(.secondary)
+            Text("Same-name matches may be different versions or formats. Identical copies can be moved to Trash individually.").font(.caption).foregroundStyle(.secondary)
             if scanned { Text("\(groups.filter { $0.exact == exact }.count) groups · \(errors.count) unreadable files or folders").font(.caption) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 15) {
                     ForEach(groups.filter { $0.exact == exact }) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(group.title).font(.headline)
-                            ForEach(group.paths, id: \.self) { path in HStack { Text(path).font(.caption).textSelection(.enabled); Spacer(); Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } } }
+                            ForEach(group.paths, id: \.self) { path in HStack { Text(path).font(.caption).textSelection(.enabled); Spacer(); Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }; if group.exact && !path.hasPrefix("/System/") && !path.hasPrefix("/Library/") { Button("Trash…") { trash(path, group: group) } } } }
                         }.padding(12).background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 7))
                     }
                     if scanned && groups.filter({ $0.exact == exact }).isEmpty { Text("No matches found.").foregroundStyle(.secondary) }
@@ -149,6 +150,17 @@ struct DuplicateView: View {
             let result = DuplicateFinder.scan(urls: urls, folders: folders)
             DispatchQueue.main.async { groups = result.groups; errors = result.errors; busy = false; scanned = true }
         }
+    }
+    func trash(_ path: String, group: DuplicateGroup) {
+        let other = group.paths.filter { $0 != path }.first { FileManager.default.fileExists(atPath: $0) }
+        guard let other, let hash = try? DuplicateFinder.hash(URL(fileURLWithPath: path)), let otherHash = try? DuplicateFinder.hash(URL(fileURLWithPath: other)), hash == otherHash else { errors.append("The duplicate changed or could not be read. Scan again before removing it."); return }
+        let panel = NSOpenPanel(); panel.directoryURL = URL(fileURLWithPath: path).deletingLastPathComponent(); panel.message = "Select \(URL(fileURLWithPath: path).lastPathComponent) to grant access for moving this duplicate to Trash."
+        guard panel.runModal() == .OK, let url = panel.url, url.standardizedFileURL.path == URL(fileURLWithPath: path).standardizedFileURL.path else { return }
+        let alert = NSAlert(); alert.messageText = "Move this duplicate to Trash?"; alert.informativeText = path + "\n\nAn identical copy remains at:\n" + other; alert.addButton(withTitle: "Move to Trash"); alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let currentHash = try? DuplicateFinder.hash(url), let remainingHash = try? DuplicateFinder.hash(URL(fileURLWithPath: other)), currentHash == remainingHash else { errors.append("The files changed or could not be read. Nothing was removed."); return }
+        do { if ActivationManager.shared.owns(url) { try ActivationManager.shared.deactivate(url, restore: false) }; try FileManager.default.trashItem(at: url, resultingItemURL: nil); library.reload(register: true); scan() }
+        catch { errors.append(error.localizedDescription) }
     }
 }
 struct ActivationView: View {

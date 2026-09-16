@@ -751,11 +751,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
     var activeUndoManager: UndoManager? {
-        if let text = window.firstResponder as? NSTextView, let manager = text.undoManager, manager.canUndo || manager.canRedo { return manager }
+        if let text = window.firstResponder as? NSTextView, !(library.workspace && text.isFieldEditor), let manager = text.undoManager, manager.canUndo || manager.canRedo { return manager }
         return library.workspace ? library.studio.undoManager : nil
     }
-    @objc func undo(_ sender: Any?) { activeUndoManager?.undo() }
-    @objc func redo(_ sender: Any?) { activeUndoManager?.redo() }
+    @objc func undo(_ sender: Any?) { let manager = activeUndoManager; if manager === library.studio.undoManager { window.makeFirstResponder(window) }; manager?.undo() }
+    @objc func redo(_ sender: Any?) { let manager = activeUndoManager; if manager === library.studio.undoManager { window.makeFirstResponder(window) }; manager?.redo() }
     @objc func runMenuCommand(_ sender: NSMenuItem) {
         guard validateMenuItem(sender), let command = sender.representedObject as? String else { return }
         let selected = library.families.filter { library.selectedFamilies.contains($0.name) }

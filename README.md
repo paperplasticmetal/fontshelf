@@ -4,7 +4,7 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.15.0 (build 23).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.16.0 (build 24).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 ## Features
 
@@ -27,7 +27,7 @@ Spaces is a separate workspace with its own project/typeboard sidebar. Its resiz
 
 Search accepts `#tag`, `#!tag`, and quoted names such as `#"Client Work"`. Typing `#` opens tag and font-property suggestions. Built-ins include `#fontshelf/active`, `#fontshelf/user`, `#fontshelf/bold`, `#fontshelf/italic`, and `#fontshelf/feature/tnum`; `#typeface/` is accepted as an alias. Tokens combine with AND and match the same style. A parent tag includes its descendants. Removable search chips show active filters.
 
-**Figma handoff:** In a typeboard's menu choose **Export editable Figma layout…**. The package includes all directions as layout JSON and a local, network-free Figma importer. Follow the bundled README. Fonts must be available to Figma. The importer creates editable text/shapes, reports fallback fonts, and retains unsupported settings as metadata. It is not live sync; text wrapping can differ. See [importer instructions](Resources/FigmaImport/README.md).
+**Figma round trip:** Use the typeboard's **Export** menu to create an editable Figma package. The bundled local plugin can also export selected Figma frames; import that JSON using **Spaces → Import → Figma typeboard…**. Imported text layers can be edited independently and moved directly on the canvas. Fonts must be available on each side. Native `.fig` files, live sync and full Figma fidelity are not supported; unsupported elements/settings are reported. See [bridge instructions](Resources/FigmaImport/README.md) and [interaction checks](docs/INTERACTION_AUDIT.md).
 
 This is not complete Typeface feature parity. Direct Adobe integration, a published Figma plug-in, document-triggered activation and cloud team collaboration are not implemented. Session activation is verified in the local development build; App Store sandbox verification remains outstanding.
 

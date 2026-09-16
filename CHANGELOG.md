@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.0 — 2026-09-16
+
+- Added selected-frame Figma import as editable, saved typeboards: independent text styling, solid shapes, original coordinates and canvas dragging, with explicit fidelity warnings. Uses the bundled JSON bridge, not native `.fig` decoding.
+- Fixed clipped space titles and crowded icon menus throughout Library and Spaces; grouped comparison actions and surfaced Export directly.
+- Added direct sidebar typeboard deletion with confirmation and Undo, plus descriptive Undo/Redo for design edits.
+- Replaced unreliable drag sessions with native tracking for canvas and arrangement reordering, including insertion feedback.
+- Remembered inspector width, top-aligned canvases and made the larger font chooser opaque and searchable immediately.
+- Fixed the Figma development plugin's missing-ID metadata failure and text auto-height handling. Validated outbound editable frames and the reverse import in the live Figma desktop app.
+
 ## 0.15.0 — 2026-09-16
 
 - Separated Library and Spaces into peer workspaces. Every space and typeboard is directly available in the Spaces sidebar; New pairing lives in the toolbar.

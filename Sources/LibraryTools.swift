@@ -1,0 +1,366 @@
+import SwiftUI
+import AppKit
+import CoreText
+
+struct AdvancedFiltersView: View {
+    @ObservedObject var library: Library
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { Text("Advanced filters").font(.headline); Spacer(); Button("Reset") { library.advanced = AdvancedFilter() } }
+            TextField("Manufacturer / foundry", text: $library.advanced.foundry)
+            TextField("OpenType tag, e.g. smcp", text: $library.advanced.feature)
+            ShelfDropdown(title: "File type", selection: $library.advanced.format, options: ["Any", "TTF", "OTF", "TTC", "OTC", "DFONT", "WOFF", "WOFF2"].map { ($0, $0) })
+            ShelfDropdown(title: "Style", selection: $library.advanced.slant, options: ["Any", "Roman", "Italic"].map { ($0, $0) })
+            HStack { Text("Weight"); TextField("Min", value: $library.advanced.minimumWeight, format: .number).frame(width: 65); Text("to"); TextField("Max", value: $library.advanced.maximumWeight, format: .number).frame(width: 65) }
+            TextField("Minimum glyph count", value: $library.advanced.minimumGlyphs, format: .number)
+            ShelfDropdown(title: "Tag", selection: $library.advanced.tag, options: [("Any", "")] + Set(library.pro.tags.values.flatMap { $0 }).sorted().map { ($0, $0) })
+            ShelfDropdown(title: "Activation", selection: $library.advanced.activation, options: ["Any", "Temporary", "FontShelf only"].map { ($0, $0) })
+            Text("Filters must match the same font style. They combine with language, category, and preview-character filters.").font(.caption).foregroundStyle(.secondary)
+        }.textFieldStyle(.roundedBorder).padding(22).frame(width: 330)
+    }
+}
+struct LibraryToolsView: View {
+    @ObservedObject var library: Library
+    @Environment(\.dismiss) var dismiss
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack { Text("Library tools").font(.title2); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            Picker("Tool", selection: $library.toolsTab) { ForEach(["Tags", "Families", "Duplicates", "Google Fonts", "Activation"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
+            Group {
+                switch library.toolsTab {
+                case "Families": FamilyEditorView(library: library)
+                case "Duplicates": DuplicateView(library: library)
+                case "Google Fonts": GoogleFontsView(library: library)
+                case "Activation": ActivationView(library: library)
+                default: TagEditorView(library: library)
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.padding(22).frame(width: 960, height: min(790, (NSScreen.main?.visibleFrame.height ?? 900) - 90))
+    }
+}
+struct TagEditorView: View {
+    @ObservedObject var library: Library
+    @State var input = ""
+    @State var status = ""
+    var entries: [String] { Array(Set(input.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })).sorted() }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack { Text("\(library.selectedFamilies.count) families · \(library.selectedFaces.count) styles selected"); Spacer(); Button("Select visible families") { library.selectedFamilies.formUnion(library.filtered.map(\.name)) }; Button("Clear selection") { library.selectedFamilies = [] } }
+            TextField("Tags separated by commas", text: $input).textFieldStyle(.roundedBorder)
+            HStack {
+                Button("Add tags") { apply(remove: false) }.disabled(entries.isEmpty || library.selectedFaces.isEmpty)
+                Button("Remove tags") { apply(remove: true) }.disabled(entries.isEmpty || library.selectedFaces.isEmpty)
+                Spacer()
+                Button("Export tag backup…") { backup() }
+                Button("Import tag backup…") { restore() }
+            }
+            Text(status).font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(library.families.filter { library.selectedFamilies.contains($0.name) }) { family in
+                        HStack { Text(family.name).fontWeight(.medium); Spacer(); Text(library.tags(family).sorted().joined(separator: ", ")).foregroundStyle(.secondary) }.padding(9).background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+            }
+            Text("Select families using the circle on each card. Tags apply to every style in each selected family and survive family regrouping.").font(.caption).foregroundStyle(.secondary)
+        }.padding(10)
+    }
+    func apply(remove: Bool) {
+        for face in library.selectedFaces {
+            var tags = library.pro.tags[face.name] ?? []
+            if remove { tags.subtract(entries) } else { tags.formUnion(entries) }
+            library.pro.tags[face.name] = tags
+        }
+        library.savePro(); status = "Updated \(library.selectedFaces.count) styles."
+    }
+    func backup() {
+        let panel = NSSavePanel(); panel.nameFieldStringValue = "FontShelf-tags.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try JSONEncoder().encode(library.pro.tags).write(to: url, options: .atomic); status = "Tag backup saved." } catch { status = error.localizedDescription }
+    }
+    func restore() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { let tags = try JSONDecoder().decode([String: Set<String>].self, from: Data(contentsOf: url)); for (name, values) in tags { library.pro.tags[name, default: []].formUnion(values) }; library.savePro(); status = "Merged tags for \(tags.count) styles." } catch { status = error.localizedDescription }
+    }
+}
+struct FamilyEditorView: View {
+    @ObservedObject var library: Library
+    @State var query = ""
+    @State var selected: Set<String> = []
+    @State var name = ""
+    @State var modifiedOnly = false
+    @State var status = ""
+    var faces: [Face] {
+        library.allFaces.filter { (!modifiedOnly || library.pro.familyOverrides[$0.name] != nil) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.originalFamily.localizedCaseInsensitiveContains(query) || (library.pro.familyOverrides[$0.name] ?? "").localizedCaseInsensitiveContains(query)) }.sorted { $0.name < $1.name }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { TextField("Search fonts or families", text: $query); Toggle("Modified only", isOn: $modifiedOnly).toggleStyle(.checkbox) }
+            HStack { Text("\(selected.count) styles selected"); Button("Select results") { selected.formUnion(faces.map(\.name)) }; Button("Clear") { selected = [] }; Spacer() }
+            HStack { TextField("Family name to group selected styles under", text: $name); Button("Apply group") { let target = name.trimmingCharacters(in: .whitespacesAndNewlines); library.editFamily(names: selected, target: target); status = "Grouped \(selected.count) styles under \(target)." }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selected.isEmpty); Button("Restore original families") { library.editFamily(names: selected, target: nil); status = "Restored original families for selected styles." }.disabled(selected.isEmpty) }
+            Text(status).font(.caption).foregroundStyle(.secondary)
+            Text("Group selected styles to merge families, or assign a subset to split a family. Font files are not modified.").font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(faces) { face in
+                        HStack {
+                            Toggle("", isOn: Binding(get: { selected.contains(face.name) }, set: { if $0 { selected.insert(face.name) } else { selected.remove(face.name) } })).labelsHidden().toggleStyle(.checkbox)
+                            VStack(alignment: .leading, spacing: 3) { Text(face.name).font(.system(size: 12, weight: .medium)); Text("Original: \(face.originalFamily) · \(face.style)").font(.caption).foregroundStyle(.secondary) }
+                            Spacer()
+                            Text(library.pro.familyOverrides[face.name] ?? face.originalFamily).font(.caption)
+                        }.padding(8).background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+            }
+        }.textFieldStyle(.roundedBorder).padding(10).onAppear { selected = Set(library.selectedFaces.map(\.name)) }
+    }
+}
+struct DuplicateView: View {
+    @ObservedObject var library: Library
+    @State var groups: [DuplicateGroup] = []
+    @State var errors: [String] = []
+    @State var busy = false
+    @State var scanned = false
+    @State var exact = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack { Button(busy ? "Scanning…" : "Scan font files") { scan() }.disabled(busy); Picker("Match", selection: $exact) { Text("Identical file contents").tag(true); Text("Same PostScript name").tag(false) }.pickerStyle(.segmented); if busy { ProgressView().controlSize(.small) } }
+            Text("Scans catalog file locations and imported folders. Same-name matches may be different versions or formats. No files are removed.").font(.caption).foregroundStyle(.secondary)
+            if scanned { Text("\(groups.filter { $0.exact == exact }.count) groups · \(errors.count) unreadable files or folders").font(.caption) }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 15) {
+                    ForEach(groups.filter { $0.exact == exact }) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(group.title).font(.headline)
+                            ForEach(group.paths, id: \.self) { path in HStack { Text(path).font(.caption).textSelection(.enabled); Spacer(); Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } } }
+                        }.padding(12).background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 7))
+                    }
+                    if scanned && groups.filter({ $0.exact == exact }).isEmpty { Text("No matches found.").foregroundStyle(.secondary) }
+                    if !errors.isEmpty { DisclosureGroup("Scan errors") { Text(errors.joined(separator: "\n")).font(.caption).textSelection(.enabled) } }
+                }
+            }
+        }.padding(10)
+    }
+    func scan() {
+        busy = true
+        let urls = library.allFaces.compactMap(\.url), folders = library.resolvedFolders
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = DuplicateFinder.scan(urls: urls, folders: folders)
+            DispatchQueue.main.async { groups = result.groups; errors = result.errors; busy = false; scanned = true }
+        }
+    }
+}
+struct ActivationView: View {
+    @ObservedObject var library: Library
+    @ObservedObject var manager = ActivationManager.shared
+    @State var status = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("\(manager.records.count) files temporarily activated").font(.headline); Spacer()
+                Button("Activate selected families") {
+                    var messages: [String] = []
+                    for url in Set(library.selectedFaces.compactMap(\.url)) { do { messages.append(url.lastPathComponent + ": " + (try manager.activate(url))) } catch { messages.append(url.lastPathComponent + ": " + error.localizedDescription) } }
+                    status = messages.joined(separator: "\n")
+                }.disabled(library.selectedFaces.isEmpty)
+                Button("Clear temporary activations") { let errors = manager.clear(); status = errors.isEmpty ? "Temporary activations cleared." : errors.joined(separator: "\n") }.disabled(manager.records.isEmpty)
+            }
+            Text("Fonts are available across apps for this login session. FontShelf clears its own activations on normal quit. If it crashes, they are cleared at the next launch or logout. Installed fonts are not deactivated.").font(.caption).foregroundStyle(.secondary)
+            ScrollView { VStack(alignment: .leading, spacing: 12) {
+                ForEach(manager.records, id: \.path) { record in HStack { Text(record.path).font(.caption).textSelection(.enabled); Spacer(); Button("Deactivate") { do { try manager.deactivate(URL(fileURLWithPath: record.path)) } catch { status = error.localizedDescription } } } }
+                Text(status).font(.caption).textSelection(.enabled)
+            } }
+        }.padding(10)
+    }
+}
+struct GoogleVariableFont: Codable, Identifiable {
+    var id: String { family }
+    let family: String
+    let category: String
+    let axes: [GoogleAxis]
+    let subsets: [String]
+}
+struct GoogleAxis: Codable { let tag: String; let min: Double; let max: Double; let defaultValue: Double }
+struct GitHubFontFile: Decodable { let name: String; let download_url: String?; let size: Int }
+final class GoogleFontStore: ObservableObject {
+    @Published var catalog: [GoogleVariableFont] = []
+    @Published var busy: String?
+    @Published var status = ""
+    init() {
+        if let url = Bundle.main.url(forResource: "GoogleVariableFonts", withExtension: "json") { catalog = (try? JSONDecoder().decode([GoogleVariableFont].self, from: Data(contentsOf: url))) ?? [] }
+        if catalog.isEmpty { status = "The bundled Google Fonts catalog is unavailable." }
+    }
+    static func fetch(_ url: URL, session: URLSession = .shared) async throws -> Data {
+        var request = URLRequest(url: url); request.timeoutInterval = 45; request.setValue("FontShelf", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw NSError(domain: "FontShelf", code: (response as? HTTPURLResponse)?.statusCode ?? 0, userInfo: [NSLocalizedDescriptionKey: "Download failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)). Check connectivity or try again later."]) }
+        guard data.count <= 50_000_000 else { throw NSError(domain: "FontShelf", code: 3, userInfo: [NSLocalizedDescriptionKey: "Font download exceeded 50 MB."]) }
+        return data
+    }
+    func download(_ font: GoogleVariableFont, library: Library) {
+        guard busy == nil else { return }
+        busy = font.family; status = "Downloading \(font.family)…"
+        Task {
+            do {
+                let slug = font.family.lowercased().filter { $0.isLetter || $0.isNumber }
+                var listing: [GitHubFontFile] = []
+                for root in ["ofl", "apache", "ufl"] {
+                    let url = URL(string: "https://api.github.com/repos/google/fonts/contents/\(root)/\(slug)")!
+                    do { listing = try JSONDecoder().decode([GitHubFontFile].self, from: await Self.fetch(url)); if !listing.isEmpty { break } }
+                    catch let error as NSError { if error.code != 404 { throw error } }
+                }
+                let files = listing.filter { ($0.name.hasSuffix(".ttf") && $0.name.contains("[")) || ["OFL.txt", "LICENSE.txt", "LICENSE"].contains($0.name) }
+                guard files.contains(where: { $0.name.hasSuffix(".ttf") }) else { throw NSError(domain: "FontShelf", code: 4, userInfo: [NSLocalizedDescriptionKey: "No variable TTF files found in Google’s repository for this family."]) }
+                guard files.contains(where: { ["OFL.txt", "LICENSE.txt", "LICENSE"].contains($0.name) }) else {
+                    throw NSError(domain: "FontShelf", code: 7, userInfo: [NSLocalizedDescriptionKey: "No license found for this download."])
+                }
+                let folder = library.saveURL.deletingLastPathComponent().appendingPathComponent("Google Fonts/" + slug)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                var fontCount = 0
+                var licenseCount = 0
+                for file in files.sorted(by: { !$0.name.hasSuffix(".ttf") && $1.name.hasSuffix(".ttf") }) {
+                    guard file.name == (file.name as NSString).lastPathComponent, let address = file.download_url, let url = URL(string: address), url.scheme == "https", url.host == "raw.githubusercontent.com", url.path.hasPrefix("/google/fonts/"), file.size <= 50_000_000 else { continue }
+                    let data = try await Self.fetch(url)
+                    if file.name.hasSuffix(".ttf") {
+                        guard licenseCount > 0 else { throw NSError(domain: "FontShelf", code: 7, userInfo: [NSLocalizedDescriptionKey: "The license could not be saved. No font files were installed."]) }
+                        guard let descriptors = CTFontManagerCreateFontDescriptorsFromData(data as CFData) as? [CTFontDescriptor], !descriptors.isEmpty else { throw NSError(domain: "FontShelf", code: 5, userInfo: [NSLocalizedDescriptionKey: "Downloaded file is not a readable font."]) }
+                        fontCount += 1
+                    }
+                    try data.write(to: folder.appendingPathComponent(file.name), options: .atomic)
+                    if !file.name.hasSuffix(".ttf") { licenseCount += 1 }
+                }
+                guard fontCount > 0 && licenseCount > 0 else { throw NSError(domain: "FontShelf", code: 6, userInfo: [NSLocalizedDescriptionKey: "No font files were downloaded."]) }
+                let downloadedCount = fontCount
+                await MainActor.run {
+                    if !library.saved.folders.contains(folder.path) { library.saved.folders.append(folder.path); library.save() }
+                    library.pendingImportFolder = folder.path
+                    library.reload(register: true)
+                    status = "Downloaded \(font.family) (\(downloadedCount) files). Available in the library; use its inspector to tune variable axes."
+                    busy = nil
+                }
+            } catch { await MainActor.run { status = error.localizedDescription; busy = nil } }
+        }
+    }
+}
+struct GoogleFontsView: View {
+    @ObservedObject var library: Library
+    @StateObject var store = GoogleFontStore()
+    @State var query = ""
+    @State private var previewText = "The quick brown fox jumps over the lazy dog."
+    @State private var previewSize = 42.0
+    var matches: [GoogleVariableFont] { store.catalog.filter { query.isEmpty || $0.family.localizedCaseInsensitiveContains(query) || $0.category.localizedCaseInsensitiveContains(query) || $0.subsets.contains { $0.localizedCaseInsensitiveContains(query) } } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Search Google families, categories, or scripts", text: $query).textFieldStyle(.roundedBorder)
+            HStack {
+                TextField("Preview text", text: $previewText).textFieldStyle(.roundedBorder)
+                Slider(value: $previewSize, in: 20...100, step: 1).frame(width: 140)
+                Text("\(Int(previewSize)) pt").monospacedDigit().frame(width: 48)
+            }
+            Text("\(store.catalog.count) families · Previews load from Google’s repository on GitHub. Download adds a font to your library.").font(.caption).foregroundStyle(.secondary)
+            Text(store.status).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            ScrollView { LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(matches) { font in
+                    VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 5) { Text(font.family).font(.headline); Text("\(font.category) · " + font.axes.map { "\($0.tag) \(Int($0.min))–\(Int($0.max))" }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }
+                        Spacer()
+                        if library.originalFamilies.contains(where: { $0.name == font.family }) {
+                            Button("Inspect installed") { if let family = library.families.first(where: { $0.name == font.family || $0.faces.contains { $0.originalFamily == font.family } }) { library.showTools = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { library.detail = family } } }
+                        }
+                        Button(store.busy == font.family ? "Downloading…" : "Download variable") { store.download(font, library: library) }.disabled(store.busy != nil || library.loading)
+                    }
+                    GoogleFontSample(font: font, text: previewText, size: previewSize, installed: library.originalFamilies.first(where: { $0.name == font.family })?.representative.name)
+                    }.padding(14).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                }
+            } }
+        }.padding(10)
+    }
+}
+
+private final class PreviewFontBox {
+    let font: CGFont
+    init(_ font: CGFont) { self.font = font }
+}
+
+/// Memory-only previews: no registration, activation, font-folder writes or catalog changes.
+private actor GooglePreviewLoader {
+    static let shared = GooglePreviewLoader()
+    private let cache = NSCache<NSString, PreviewFontBox>()
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }()
+    private var active = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    init() { cache.countLimit = 48; cache.totalCostLimit = 64 * 1024 * 1024 }
+    private func acquire() async {
+        if active < 3 { active += 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    private func release() {
+        if waiting.isEmpty { active -= 1 } else { waiting.removeFirst().resume() }
+    }
+    func load(_ family: String) async throws -> CGFont {
+        if let cached = cache.object(forKey: family as NSString) { return cached.font }
+        await acquire()
+        defer { release() }
+        try Task.checkCancellation()
+        if let cached = cache.object(forKey: family as NSString) { return cached.font }
+        let slug = family.lowercased().filter { $0.isLetter || $0.isNumber }
+        for root in ["ofl", "apache", "ufl"] {
+            let folder = URL(string: "https://raw.githubusercontent.com/google/fonts/main/")!.appendingPathComponent(root).appendingPathComponent(slug)
+            let metadata: Data
+            do { metadata = try await GoogleFontStore.fetch(folder.appendingPathComponent("METADATA.pb"), session: session) }
+            catch let error as NSError { if error.code == 404 { continue }; throw error }
+            let source = String(decoding: metadata, as: UTF8.self)
+            let expression = try NSRegularExpression(pattern: #"filename:\s*"([^"]+\.ttf)""#)
+            let filenames = expression.matches(in: source, range: NSRange(source.startIndex..., in: source)).compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: source) else { return nil }
+                let name = String(source[range])
+                return name == (name as NSString).lastPathComponent ? name : nil
+            }
+            guard let filename = filenames.first(where: { !$0.lowercased().contains("italic") }) ?? filenames.first else { continue }
+            try Task.checkCancellation()
+            let data = try await GoogleFontStore.fetch(folder.appendingPathComponent(filename), session: session)
+            try Task.checkCancellation()
+            guard let provider = CGDataProvider(data: data as CFData), let font = CGFont(provider) else {
+                throw NSError(domain: "FontShelf", code: 5, userInfo: [NSLocalizedDescriptionKey: "The preview font could not be read."])
+            }
+            cache.setObject(PreviewFontBox(font), forKey: family as NSString, cost: data.count)
+            return font
+        }
+        throw NSError(domain: "FontShelf", code: 4, userInfo: [NSLocalizedDescriptionKey: "No preview file found for this family."])
+    }
+}
+
+private struct GoogleFontSample: View {
+    let font: GoogleVariableFont
+    let text: String
+    let size: Double
+    let installed: String?
+    @State private var loaded: CGFont?
+    @State private var error = ""
+    @State private var attempt = 0
+    var body: some View {
+        Group {
+            if let installed {
+                FontPreview(text: text, name: installed, size: size, wraps: true)
+            } else if let loaded {
+                FontPreview(text: text, name: font.family, size: size, wraps: true, previewFont: loaded)
+            } else if !error.isEmpty {
+                HStack { Text("Preview unavailable").foregroundStyle(.secondary); Button("Retry") { error = ""; attempt += 1 } }.help(error)
+            } else {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Loading preview…").foregroundStyle(.secondary) }
+            }
+        }.frame(maxWidth: .infinity, minHeight: size * 1.5, alignment: .leading)
+        .onDisappear { loaded = nil }
+        .task(id: attempt) {
+            guard installed == nil, loaded == nil else { return }
+            do { loaded = try await GooglePreviewLoader.shared.load(font.family) }
+            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        }
+    }
+}

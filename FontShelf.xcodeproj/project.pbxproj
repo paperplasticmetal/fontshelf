@@ -1,0 +1,44 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+00000000000000000000006D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PreviewLayout.swift"; sourceTree = "<group>"; };
+0000000000000000000000D1 = { isa = PBXBuildFile; fileRef = 00000000000000000000006D; };
+000000000000000000000064 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Appearance.swift"; sourceTree = "<group>"; };
+0000000000000000000000C8 = { isa = PBXBuildFile; fileRef = 000000000000000000000064; };
+000000000000000000000065 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Features.swift"; sourceTree = "<group>"; };
+0000000000000000000000C9 = { isa = PBXBuildFile; fileRef = 000000000000000000000065; };
+000000000000000000000066 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FolderAccess.swift"; sourceTree = "<group>"; };
+0000000000000000000000CA = { isa = PBXBuildFile; fileRef = 000000000000000000000066; };
+000000000000000000000067 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FontInspector.swift"; sourceTree = "<group>"; };
+0000000000000000000000CB = { isa = PBXBuildFile; fileRef = 000000000000000000000067; };
+000000000000000000000068 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KnownCategories.swift"; sourceTree = "<group>"; };
+0000000000000000000000CC = { isa = PBXBuildFile; fileRef = 000000000000000000000068; };
+000000000000000000000069 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LibraryTools.swift"; sourceTree = "<group>"; };
+0000000000000000000000CD = { isa = PBXBuildFile; fileRef = 000000000000000000000069; };
+00000000000000000000006A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProChecks.swift"; sourceTree = "<group>"; };
+0000000000000000000000CE = { isa = PBXBuildFile; fileRef = 00000000000000000000006A; };
+00000000000000000000006B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProModels.swift"; sourceTree = "<group>"; };
+0000000000000000000000CF = { isa = PBXBuildFile; fileRef = 00000000000000000000006B; };
+00000000000000000000006C = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "main.swift"; sourceTree = "<group>"; };
+0000000000000000000000D0 = { isa = PBXBuildFile; fileRef = 00000000000000000000006C; };
+00000000000000000000012C = { isa = PBXFileReference; lastKnownFileType = text.json; path = "GoogleVariableFonts.json"; sourceTree = "<group>"; };
+000000000000000000000190 = { isa = PBXBuildFile; fileRef = 00000000000000000000012C; };
+00000000000000000000012D = { isa = PBXFileReference; lastKnownFileType = text.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
+000000000000000000000191 = { isa = PBXBuildFile; fileRef = 00000000000000000000012D; };
+00000000000000000000012E = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+000000000000000000000192 = { isa = PBXBuildFile; fileRef = 00000000000000000000012E; };
+000000000000000000000001 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 00000000000000000000000A; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = 000000000000000000000002; productRefGroup = 000000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000006); };
+000000000000000000000002 = { isa = PBXGroup; children = (000000000000000000000003, 000000000000000000000004, 000000000000000000000005); sourceTree = "<group>"; };
+000000000000000000000003 = { isa = PBXGroup; children = (000000000000000000000064,000000000000000000000065,000000000000000000000066,000000000000000000000067,000000000000000000000068,000000000000000000000069,00000000000000000000006A,00000000000000000000006B,00000000000000000000006C,00000000000000000000006D); path = Sources; sourceTree = "<group>"; };
+000000000000000000000004 = { isa = PBXGroup; children = (00000000000000000000012C,00000000000000000000012D,00000000000000000000012E); path = Resources; sourceTree = "<group>"; };
+000000000000000000000005 = { isa = PBXGroup; children = (000000000000000000000007); name = Products; sourceTree = "<group>"; };
+000000000000000000000006 = { isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000000B; buildPhases = (000000000000000000000008, 000000000000000000000009); buildRules = (); dependencies = (); name = FontShelf; productName = FontShelf; productReference = 000000000000000000000007; productType = "com.apple.product-type.application"; };
+000000000000000000000007 = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FontShelf.app; sourceTree = BUILT_PRODUCTS_DIR; };
+000000000000000000000008 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000000C8,0000000000000000000000C9,0000000000000000000000CA,0000000000000000000000CB,0000000000000000000000CC,0000000000000000000000CD,0000000000000000000000CE,0000000000000000000000CF,0000000000000000000000D0,0000000000000000000000D1); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000009 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000190,000000000000000000000191,000000000000000000000192); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000000A = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000000C,00000000000000000000000D); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+00000000000000000000000B = { isa = XCConfigurationList; buildConfigurations = (00000000000000000000000E,00000000000000000000000F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+00000000000000000000000C = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 13.0; CLANG_ENABLE_MODULES = YES; }; };
+00000000000000000000000D = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 13.0; CLANG_ENABLE_MODULES = YES; }; };
+00000000000000000000000E = { isa = XCBuildConfiguration; name = Debug; buildSettings = { ARCHS = arm64; SWIFT_TREAT_WARNINGS_AS_ERRORS = YES; CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Resources/FontShelf.entitlements; ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info-Store.plist; PRODUCT_BUNDLE_IDENTIFIER = local.fontshelf.app; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; ONLY_ACTIVE_ARCH = YES; }; };
+00000000000000000000000F = { isa = XCBuildConfiguration; name = Release; buildSettings = { ARCHS = arm64; SWIFT_TREAT_WARNINGS_AS_ERRORS = YES; CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Resources/FontShelf.entitlements; ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info-Store.plist; PRODUCT_BUNDLE_IDENTIFIER = local.fontshelf.app; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; ONLY_ACTIVE_ARCH = NO; }; };
+}; rootObject = 000000000000000000000001; }

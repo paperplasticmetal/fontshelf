@@ -1,0 +1,268 @@
+import SwiftUI
+import AppKit
+import CoreText
+
+struct PreviewColorsView: View {
+    @AppStorage("customPreviewColors") var enabled = false
+    @AppStorage("previewInkHex") var inkHex = "EEEEEE"
+    @AppStorage("previewPaperHex") var paperHex = "202020"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Preview colors").font(.headline)
+            Toggle("Use custom colors", isOn: $enabled)
+            ColorPicker("Text", selection: Binding(get: { Color(nsColor: NSColor(hex: inkHex)) }, set: { inkHex = NSColor($0).rgbHex; enabled = true }), supportsOpacity: false)
+            ColorPicker("Background", selection: Binding(get: { Color(nsColor: NSColor(hex: paperHex)) }, set: { paperHex = NSColor($0).rgbHex; enabled = true }), supportsOpacity: false)
+            HStack { Button("Black on white") { inkHex = "111111"; paperHex = "FFFFFF"; enabled = true }; Button("Reset") { enabled = false; inkHex = "EEEEEE"; paperHex = "202020" } }
+        }.padding(22).frame(width: 280)
+    }
+}
+struct BodyColumns: NSViewRepresentable {
+    let text: String
+    let font: CTFont
+    let columns: Int
+    let width: Double
+    let lineHeight: Double
+    let tracking: Double
+    let alignment: NSTextAlignment
+    let ink: NSColor
+    let paper: NSColor
+    final class Coordinator { var storage: NSTextStorage? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        view.subviews.forEach { $0.removeFromSuperview() }
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineHeightMultiple = lineHeight; paragraph.paragraphSpacing = 14; paragraph.alignment = alignment
+        let storage = NSTextStorage(attributedString: NSAttributedString(string: text, attributes: [.font: font as NSFont, .foregroundColor: ink, .paragraphStyle: paragraph, .kern: tracking]))
+        context.coordinator.storage = storage
+        let layout = NSLayoutManager(); storage.addLayoutManager(layout)
+        let gap = 24.0, columnWidth = (width - gap * Double(columns - 1)) / Double(columns)
+        for i in 0..<columns {
+            let container = NSTextContainer(size: NSSize(width: columnWidth, height: 520)); container.lineFragmentPadding = 0
+            layout.addTextContainer(container)
+            let textView = NSTextView(frame: NSRect(x: Double(i) * (columnWidth + gap), y: 0, width: columnWidth, height: 520), textContainer: container)
+            textView.isEditable = false; textView.isSelectable = true; textView.drawsBackground = true; textView.backgroundColor = paper; textView.textContainerInset = .zero
+            textView.isVerticallyResizable = false; textView.isHorizontallyResizable = false
+            view.addSubview(textView)
+        }
+        // Text views retain their shared layout manager and text storage.
+    }
+}
+struct LayoutWorkspace: View {
+    let face: Face
+    let axes: [Int: Double]
+    let features: [String: Int]
+    @State var headline = "Headline"
+    @State var copy = String(repeating: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod non, mi.\n\n", count: 5)
+    @State var bodySize = 18.0
+    @State var headingSize = 44.0
+    @State var width = 740.0
+    @State var lineHeight = 1.3
+    @State var tracking = 0.0
+    @State var columns = 2
+    @State var alignment = "Left"
+    @State var editCopy = false
+    @AppStorage("customPreviewColors") var customColors = false
+    @AppStorage("previewInkHex") var inkHex = "EEEEEE"
+    @AppStorage("previewPaperHex") var paperHex = "202020"
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack { TextField("Headline", text: $headline); Button(editCopy ? "Hide text editor" : "Edit body text") { editCopy.toggle() } }
+                if editCopy { TextEditor(text: $copy).font(.body).frame(height: 130).overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.3))) }
+                HStack {
+                    Stepper("Body \(Int(bodySize)) pt", value: $bodySize, in: 8...72).frame(width: 160)
+                    Stepper("Heading \(Int(headingSize)) pt", value: $headingSize, in: 16...100).frame(width: 180)
+                    ShelfDropdown(title: "Columns", selection: $columns, options: (1...3).map { (String($0), $0) }).frame(width: 130)
+                    ShelfDropdown(title: "Align", selection: $alignment, options: ["Left", "Center", "Right", "Justified"].map { ($0, $0) }).frame(width: 160)
+                }
+                HStack { Text("Width"); Slider(value: $width, in: 360...920, step: 10); Text("\(Int(width)) pt").monospacedDigit(); Text("Leading"); Slider(value: $lineHeight, in: 1...2).frame(width: 95); Text(String(format: "%.2f", lineHeight)); Text("Tracking"); Slider(value: $tracking, in: -1...6).frame(width: 90); Text(String(format: "%.1f", tracking)) }
+                Text("Text flows across columns. Overflow beyond the fixed 520 pt page is clipped; reduce size or edit the text.").font(.caption).foregroundStyle(.secondary)
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        FontPreview(text: headline, name: face.name, size: headingSize, variations: axes, features: features).frame(width: width, height: headingSize * 1.5)
+                        BodyColumns(text: copy, font: OpenType.font(name: face.name, size: bodySize, axes: axes, features: features), columns: columns, width: width, lineHeight: lineHeight, tracking: tracking, alignment: alignment == "Center" ? .center : alignment == "Right" ? .right : alignment == "Justified" ? .justified : .left, ink: customColors ? NSColor(hex: inkHex) : .labelColor, paper: customColors ? NSColor(hex: paperHex) : .textBackgroundColor).frame(width: width, height: 520)
+                    }.padding(22).background(customColors ? Color(nsColor: NSColor(hex: paperHex)) : Color(nsColor: .textBackgroundColor))
+                }
+            }.padding(18)
+        }
+    }
+}
+struct OpenTypeInspector: View {
+    let face: Face
+    @Binding var features: [String: Int]
+    @Binding var text: String
+    let axes: [Int: Double]
+    @State var query = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { TextField("Search feature tags", text: $query); Button("Feature sample") { text = "office affine fi fl ffi 0123456789 1/2 3/4 HAMBURGEFONTS abcdefgh" }; Button("Reset features") { features = [:] } }
+            FontPreview(text: text, name: face.name, size: 38, variations: axes, features: features).frame(height: 75)
+            Text("Default uses the font’s own settings. Features can depend on script, language, or specific characters.").font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(face.facts.features.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) || OpenType.label($0).localizedCaseInsensitiveContains(query) }, id: \.self) { tag in
+                        HStack { Text(tag).font(.system(.body, design: .monospaced)).frame(width: 55, alignment: .leading); Text(OpenType.label(tag)); Spacer(); ShelfDropdown(title: "Value", selection: Binding(get: { features[tag] ?? -1 }, set: { if $0 < 0 { features.removeValue(forKey: tag) } else { features[tag] = $0 } }), options: [("Default", -1), ("Off", 0), ("On", 1)] + (2...9).map { ("Alternate \($0)", $0) }, showsTitle: false).frame(width: 145) }.padding(8).background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    if face.facts.features.isEmpty { Text("No GSUB/GPOS feature tags found. This font may use Apple Advanced Typography features.").foregroundStyle(.secondary) }
+                    DisclosureGroup("Core Text feature metadata") {
+                        Text(coreTextMetadata).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.top, 12)
+                }
+            }
+        }.padding(18)
+    }
+    var coreTextMetadata: String {
+        let font = CTFontCreateWithName(face.name as CFString, 24, nil)
+        let types = CTFontCopyFeatures(font) as? [[String: Any]] ?? []
+        return types.map { type in
+            let name = type[kCTFontFeatureTypeNameKey as String] as? String ?? "Feature"
+            let selectors = type[kCTFontFeatureTypeSelectorsKey as String] as? [[String: Any]] ?? []
+            return name + ": " + selectors.compactMap { $0[kCTFontFeatureSelectorNameKey as String] as? String }.joined(separator: ", ")
+        }.joined(separator: "\n")
+    }
+}
+struct FontContextView: View {
+    let face: Face
+    @ObservedObject var library: Library
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                let font = CTFontCreateWithName(face.name as CFString, 1000, nil)
+                Text(face.name).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                Text("Original family: \(face.originalFamily) · \(face.style)")
+                Text("\(face.facts.glyphCount) glyphs · Weight \(face.facts.weight) · \(CTFontGetUnitsPerEm(font)) units/em")
+                Text("At 1000 pt: ascent \(Int(CTFontGetAscent(font))), descent \(Int(CTFontGetDescent(font))), x-height \(Int(CTFontGetXHeight(font))), cap height \(Int(CTFontGetCapHeight(font)))").font(.caption)
+                ForEach(metadata(font), id: \.0) { label, value in VStack(alignment: .leading, spacing: 3) { Text(label).font(.caption).foregroundStyle(.secondary); Text(value).textSelection(.enabled) } }
+                if let url = face.url {
+                    Text(url.path).font(.caption).textSelection(.enabled)
+                    let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                    Text("\(url.pathExtension.uppercased()) · \(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) · \(scopeLabel(url))").font(.caption)
+                    HStack { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }; Button("Copy path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) } }
+                }
+                Text("Script coverage").font(.headline)
+                Text(face.writingSystems.sorted { $0.rawValue < $1.rawValue }.map(\.rawValue).joined(separator: " · "))
+                Text("Notes").font(.headline)
+                TextEditor(text: Binding(get: { library.pro.notes[face.name] ?? "" }, set: { library.pro.notes[face.name] = $0; library.savePro() })).frame(height: 100).overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.2)))
+            }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    func metadata(_ font: CTFont) -> [(String, String)] {
+        [("Version", kCTFontVersionNameKey), ("Designer", kCTFontDesignerNameKey), ("Manufacturer", kCTFontManufacturerNameKey), ("Description", kCTFontDescriptionNameKey), ("Copyright", kCTFontCopyrightNameKey), ("Trademark", kCTFontTrademarkNameKey), ("License", kCTFontLicenseNameKey), ("License URL", kCTFontLicenseURLNameKey)].compactMap { label, key in
+            guard let value = CTFontCopyName(font, key) as String?, !value.isEmpty else { return nil }; return (label, value)
+        }
+    }
+    func scopeLabel(_ url: URL) -> String { switch CTFontManagerGetScopeForURL(url as CFURL) { case .process: return "FontShelf only"; case .session: return "Current login session"; case .persistent: return "Installed"; default: return "System or unregistered" } }
+}
+struct FontSwitchView: View {
+    let face: Face
+    @ObservedObject var activation = ActivationManager.shared
+    @State var target: AdobeTarget = .illustrator
+    @State var status = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Adobe scripts").font(.title2)
+            ShelfDropdown(title: "Target application", selection: $target, options: AdobeTarget.allCases.map { ($0.rawValue, $0) }).frame(width: 310)
+            Text(face.name).font(.system(.body, design: .monospaced))
+            Button("Export Adobe script…") { AdobeBridge.export(face: face, target: target) }
+            Text("Run the exported script in the selected Adobe app with text selected. The font must already be available there. Photoshop changes the entire active text layer. Custom variable-axis values are not transferred.").font(.caption).foregroundStyle(.secondary)
+            Text(status).textSelection(.enabled).foregroundStyle(.secondary)
+            if let url = face.url {
+                Divider()
+                Text("Temporary activation").font(.headline)
+                Text(activation.owns(url) ? "Temporarily activated by FontShelf" : "Not temporarily activated by FontShelf")
+                Button(activation.owns(url) ? "Deactivate temporary font" : "Activate temporarily") {
+                    do { if activation.owns(url) { try activation.deactivate(url); status = "Temporary activation cleared." } else { status = try activation.activate(url) } } catch { status = error.localizedDescription }
+                }
+                Text("Cleared on normal quit or logout.").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }.padding(22)
+    }
+}
+struct DetailView: View {
+    @ObservedObject var library: Library
+    let family: Family
+    @State var preview: String
+    @State var size: Double
+    @State var chosen = ""
+    @State var tab = "All styles"
+    @State var overlayStyles = false
+    @State private var exportStatus = ""
+    @Environment(\.dismiss) var dismiss
+    var face: Face { family.faces.first { $0.name == chosen } ?? library.chosenFace(family) }
+    private func weight(_ face: Face) -> Double {
+        let traits = CTFontCopyTraits(CTFontCreateWithName(face.name as CFString, 24, nil)) as NSDictionary
+        return (traits[kCTFontWeightTrait] as? Double ?? 0) + (face.style.lowercased().contains("italic") ? 0.001 : 0)
+    }
+    var axesBinding: Binding<[Int: Double]> { Binding(get: { library.pro.axes[face.name] ?? [:] }, set: { library.pro.axes[face.name] = $0; library.savePro() }) }
+    var featureBinding: Binding<[String: Int]> { Binding(get: { library.pro.features[face.name] ?? [:] }, set: { library.pro.features[face.name] = $0; library.savePro() }) }
+    var axes: [Axis] {
+        let values = CTFontCopyVariationAxes(CTFontCreateWithName(face.name as CFString, 24, nil)) as? [[String: Any]] ?? []
+        return values.compactMap { d in
+            guard let id = d[kCTFontVariationAxisIdentifierKey as String] as? Int, let min = d[kCTFontVariationAxisMinimumValueKey as String] as? Double, let max = d[kCTFontVariationAxisMaximumValueKey as String] as? Double, let value = d[kCTFontVariationAxisDefaultValueKey as String] as? Double, max > min else { return nil }
+            return Axis(id: id, name: d[kCTFontVariationAxisNameKey as String] as? String ?? "Axis", min: min, max: max, defaultValue: value)
+        }
+    }
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack { Text(family.name).font(.title2); Spacer(); Button("Export font…") { if let result = FontExporter.export([face]) { exportStatus = result } }; Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
+            HStack {
+                ShelfDropdown(title: "Style", selection: $chosen, options: family.faces.map { ($0.style, $0.name) }).frame(width: 300)
+                Button("Use as main preview") { library.pro.mainPreviews[family.name] = face.name; library.savePro() }
+                Button("Compare in library") { library.overlayName = face.name; dismiss() }
+                Spacer(); Text(library.category(family).rawValue).foregroundStyle(.secondary)
+            }
+            Picker("Inspector", selection: $tab) { ForEach(["All styles", "Preview", "Body layout", "OpenType", "Context", "Adobe scripts"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
+            Group {
+                switch tab {
+                case "All styles":
+                    VStack {
+                        HStack {
+                            Toggle("Overlay comparison", isOn: $overlayStyles).toggleStyle(.checkbox)
+                            if overlayStyles { Text("Cyan: \(face.style) · Orange: each style").foregroundStyle(.secondary) }
+                            Spacer()
+                        }
+                        HStack { TextField("Preview text", text: $preview); Slider(value: $size, in: 16...160).frame(width: 150); Text("\(Int(size)) pt").monospacedDigit().frame(width: 50) }
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 12) {
+                                ForEach(family.faces.sorted { weight($0) < weight($1) }) { style in
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        HStack { Text(style.style).font(.headline); Spacer(); Button("Inspect") { chosen = style.name; tab = "Preview" }; Button("Compare in library") { library.overlayName = style.name; dismiss() }; Button("Use as main preview") { library.pro.mainPreviews[family.name] = style.name; library.savePro() } }
+                                        if overlayStyles {
+                                            OverlayPreview(text: preview, candidate: style.name, reference: face.name, size: size, library: library)
+                                        } else {
+                                            FontPreview(text: preview, name: style.name, size: size, wraps: true, variations: library.pro.axes[style.name] ?? [:], features: library.pro.features[style.name] ?? [:])
+                                        }
+                                    }.padding(16).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                                }
+                            }.padding(.vertical, 8)
+                        }
+                    }
+                case "Body layout": LayoutWorkspace(face: face, axes: axesBinding.wrappedValue, features: featureBinding.wrappedValue)
+                case "OpenType": OpenTypeInspector(face: face, features: featureBinding, text: $preview, axes: axesBinding.wrappedValue)
+                case "Context": FontContextView(face: face, library: library)
+                case "Adobe scripts": FontSwitchView(face: face)
+                default:
+                    ScrollView { VStack(alignment: .leading, spacing: 18) {
+                        HStack { TextField("Preview text", text: $preview); Slider(value: $size, in: 16...160).frame(width: 150); Text("\(Int(size)) pt").monospacedDigit().frame(width: 50) }
+                        ScrollView(.horizontal) { FontPreview(text: preview, name: face.name, size: size, variations: axesBinding.wrappedValue, features: featureBinding.wrappedValue).frame(width: max(860, Double(preview.count) * size), height: size * 1.6) }.frame(height: size * 1.6 + 12)
+                        if !axes.isEmpty {
+                            HStack { Text("Variable axes").font(.headline); Spacer(); Button("Reset axes") { axesBinding.wrappedValue = [:] } }
+                            ForEach(axes) { axis in HStack { Text(axis.name).frame(width: 120, alignment: .leading); Slider(value: Binding(get: { axesBinding.wrappedValue[axis.id] ?? axis.defaultValue }, set: { axesBinding.wrappedValue[axis.id] = $0 }), in: axis.min...axis.max); Text(String(format: "%.1f", axesBinding.wrappedValue[axis.id] ?? axis.defaultValue)).monospacedDigit().frame(width: 65) } }
+                            Button("Copy CSS variation settings") {
+                                let values = axes.map { axis -> String in let bytes: [UInt8] = [UInt8((axis.id >> 24) & 255), UInt8((axis.id >> 16) & 255), UInt8((axis.id >> 8) & 255), UInt8(axis.id & 255)]; let tag = String(bytes: bytes, encoding: .ascii) ?? "axis"; return "'\(tag)' \(String(format: "%.2f", axesBinding.wrappedValue[axis.id] ?? axis.defaultValue))" }.joined(separator: ", ")
+                                NSPasteboard.general.clearContents(); NSPasteboard.general.setString("font-variation-settings: \(values);", forType: .string)
+                            }
+                        }
+                        CoverageView(text: preview, coverage: face.coverage)
+                        FontPreview(text: "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789", name: face.name, size: 28, variations: axesBinding.wrappedValue, features: featureBinding.wrappedValue).frame(height: 60)
+                        Text(face.name).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    }.padding(18) }
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.padding(20).frame(width: 980, height: min(820, (NSScreen.main?.visibleFrame.height ?? 920) - 90)).onAppear { chosen = library.chosenFace(family).name }
+        .alert("Font export", isPresented: Binding(get: { !exportStatus.isEmpty }, set: { if !$0 { exportStatus = "" } })) {
+            Button("OK") { exportStatus = "" }
+        } message: { Text(exportStatus) }
+    }
+}

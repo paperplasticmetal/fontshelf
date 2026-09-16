@@ -1,0 +1,23 @@
+# Local build products
+.build/
+dist/
+DerivedData/
+*.app/
+*.xcarchive/
+*.dSYM/
+*.zip
+.DS_Store
+# Developer settings and credentials
+xcuserdata/
+*.xcuserstate
+.env
+.env.*
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
+# Personal library state is never source
+library.json
+pro-library.json
+folder-access.json
+temporary-activations.json

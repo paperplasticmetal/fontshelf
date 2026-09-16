@@ -485,9 +485,24 @@ struct ContentView: View {
         }
     }
     func sectionLabel(_ title: String) -> some View { Text(title).font(.system(size: 10, weight: .semibold)).tracking(0.8).foregroundStyle(.secondary).padding(.horizontal, 14).padding(.bottom, 5) }
+    @ViewBuilder func navIcon(_ icon: String, key: String) -> some View {
+        if key == Category.serif.rawValue {
+            Text("A")
+                .font(.system(size: 17, weight: .semibold, design: .serif))
+                .frame(width: 20, height: 20)
+                .accessibilityHidden(true)
+        } else if key == Category.sans.rawValue {
+            Text("A")
+                .font(.system(size: 17, weight: .semibold, design: .default))
+                .frame(width: 20, height: 20)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: icon).frame(width: 20)
+        }
+    }
     func nav(_ title: String, icon: String, key: String) -> some View {
         Button { library.selection = key } label: {
-            HStack { Image(systemName: icon).frame(width: 20); Text(title).lineLimit(1); Spacer(); Text("\(library.families.filter { library.matchesSection($0, key) }.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary) }.padding(.horizontal, 10).padding(.vertical, 9).contentShape(Rectangle())
+            HStack { navIcon(icon, key: key); Text(title).lineLimit(1); Spacer(); Text("\(library.families.filter { library.matchesSection($0, key) }.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary) }.padding(.horizontal, 10).padding(.vertical, 9).contentShape(Rectangle())
         }.buttonStyle(.plain).background(library.selection == key ? Color.accentColor.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 8)
     }
     var header: some View {

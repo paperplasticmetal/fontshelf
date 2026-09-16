@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.1 — 2026-09-15
+
+- Replaced the generic Serif and Sans Serif category symbols with compact letterform icons rendered in their corresponding type styles.
+
 ## 0.13.0 — 2026-09-15
 
 - Actual Google Fonts previews before downloading, with editable sample text and size.

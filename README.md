@@ -4,7 +4,7 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.13.0 (build 20).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.13.1 (build 21).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 ## Features
 

@@ -277,6 +277,7 @@ struct TypeBoardEditor: View {
         .onChange(of: savedBoard) { value in if value != board { board = value } }
         .onChange(of: role) { _ in library.studio.endUndoCoalescing() }
         .onChange(of: selectedSection) { _ in library.studio.endUndoCoalescing() }
+        .onChange(of: selectedTextID) { _ in library.studio.endUndoCoalescing() }
         .onChange(of: direction.id) { _ in selectedSection = nil; selectedTextID = nil; draggedSection = nil; if let other = board.directions.first(where: { $0.id == abID }), other.canvas != direction.canvas || other.width != direction.width { abID = nil } }
         .onChange(of: direction.canvas) { _ in abID = nil; selectedSection = nil; selectedTextID = nil }
         .onChange(of: direction.width) { _ in abID = nil }

@@ -2,6 +2,8 @@
 
 ## 0.17.0 follow-up
 
+Also verified the Add & Watch picker explains recursive updates, choosing a temporary empty folder opens Watched folders automatically, and the new entry has activation off by default. Stopped watching only that temporary test folder afterward; the user's three existing watches were left unchanged. Verified 200% canvas zoom through the menu and return to Fit. Library scanning can queue newly chosen folders instead of disabling the picker.
+
 Live-checked visible canvas tabs and Show all canvases on a two-canvas board; exact canvas button-label selection into the UI label editor; editing that label without changing the headline, followed by Undo; the existing Portfolio Site collection filtering the font chooser to 14 styles; and the persistent trash action opening confirmation for an unselected board (cancelled without deleting it). The Library live-folders shortcut is visible. Regression checks cover collection/category intersection, manual category overrides, favorites, exact role hit-testing, selected-text serialization/rendering, legacy naming and zoom bounds.
 
 Pinch and Command-scroll handlers are implemented with viewport-limited native event monitoring. Physical trackpad gesture feel has not been verified by automation. Native `.fig` decoding remains unimplemented: Figma's [local-copy guide](https://help.figma.com/hc/en-us/articles/8403626871063-Save-a-local-copy-of-files) and [import guide](https://help.figma.com/hc/en-us/articles/360041003114-Import-files-to-the-file-browser) describe reopening the file in Figma; no supported local decoding contract was found during this pass. The in-app import menu explains the bridge workflow.

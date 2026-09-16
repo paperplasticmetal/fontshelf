@@ -289,7 +289,6 @@ final class Library: ObservableObject {
         }
     }
     func addFolder() {
-        guard !loading else { message = "Wait for the current font scan to finish."; return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
         panel.prompt = "Add & Watch"
         panel.message = "Add this folder and watch it live. Fonts in its subfolders are included, and additions, replacements and removals update automatically every three seconds while FontShelf is open. Nothing is installed or moved."
@@ -298,6 +297,11 @@ final class Library: ObservableObject {
         if !saved.folders.contains(url.path) { saved.folders.append(url.path); save() }
         if !resolvedFolders.contains(url.path) { resolvedFolders.append(url.path) }
         openTools("Folders")
+        if loading {
+            folderStatus = "Folder added. Its first scan is queued behind the current scan; live watching starts when that scan finishes."
+            reload(register: true)
+            return
+        }
         loading = true
         DispatchQueue.global(qos: .userInitiated).async {
             let count = FontCatalog.registerFolder(url.path)
@@ -535,7 +539,7 @@ struct ContentView: View {
             }
             } }
             Spacer(minLength: 4)
-            Button { library.addFolder() } label: { Label("Add font folder", systemImage: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).foregroundStyle(Color.black.opacity(0.85)).padding(10).background(ShelfPalette.indiaYellow, in: RoundedRectangle(cornerRadius: 12)).padding(12).disabled(library.loading)
+            Button { library.addFolder() } label: { Label("Add font folder", systemImage: "folder.badge.plus").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).foregroundStyle(Color.black.opacity(0.85)).padding(10).background(ShelfPalette.indiaYellow, in: RoundedRectangle(cornerRadius: 12)).padding(12)
             Button { library.openTools("Folders") } label: { Label("Live folders · \(library.saved.folders.count)", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain).padding(.horizontal, 22).padding(.bottom, 8).help("Manage folders that update automatically, including subfolders")
             HStack { ShelfDropdown(title: "Appearance", selection: $appearance, options: ["Dark", "Light", "System"].map { ($0, $0) }, showsTitle: false); Button { library.reload() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(6).help("Refresh installed fonts").disabled(library.loading) }.padding(.horizontal, 12).padding(.bottom, 14)
         }

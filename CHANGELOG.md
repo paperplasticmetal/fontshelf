@@ -4,6 +4,7 @@
 
 - Simplified vocabulary to Spaces → Typeboards → Canvases, with visible canvas tabs, a Show all canvases toggle and clearer New typeboard/Add canvas commands. Legacy generated labels display as Canvas 1, Canvas 2, etc. without rewriting saved names.
 - Exposed recursive live folder watching during folder selection and opened its controls after adding a folder; added a permanent Library sidebar shortcut.
+- Allowed adding folders during an existing library scan, queuing the first scan with an explicit status instead of disabling the picker.
 - Kept every typeboard trash button visible and clickable without selecting or hovering.
 - Added bounded trackpad-pinch and Command-scroll zoom over the canvas viewport, preserving normal scroll-to-pan behavior.
 - Added collections, favorites, category overrides and tag queries to the typeboard font chooser.

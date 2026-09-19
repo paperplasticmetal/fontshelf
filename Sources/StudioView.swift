@@ -16,7 +16,6 @@ struct StudioView: View {
     @State private var boardID: UUID?
     @State private var newName = ""
     @State private var showNewSpace = false
-    @State private var renamingSpace = false
     @State private var confirmDelete = false
     @State private var deletingBoard: (space: UUID, board: TypeBoard)?
     var space: DesignSpace? { store.state.spaces.first { $0.id == spaceID } ?? store.state.spaces.first }
@@ -28,12 +27,13 @@ struct StudioView: View {
             if !store.error.isEmpty { Text(store.error).foregroundStyle(.orange).textSelection(.enabled).padding(.horizontal, 20) }
             if let space {
                 HStack(spacing: 12) {
-                    Text(space.displayName).font(.system(size: 22, weight: .semibold)).lineLimit(1).frame(minHeight: 30).help(space.displayName)
+                    ShelfEditableName(name: space.displayName, onRename: { setSpaceName(space.id, $0) }).font(.system(size: 22, weight: .semibold)).frame(minHeight: 30)
                     Spacer()
                     Button("New typeboard") { boardID = store.addBoard(space: space.id, fonts: library.compared.map { library.chosenFace($0).name }) }
                     Menu {
-                        Button("Rename space…") { newName = space.displayName; renamingSpace = true; showNewSpace = true }
+                        Button("Rename space…") { renameSpace(space) }
                         Button("Import Figma typeboard…") { importFigma() }
+                        Button("Developer handoff…") { exportHandoff(space) }.disabled(space.boards.isEmpty)
                         Button("Export space…") { exportSpace(space) }
                         Button("Import space…") { importSpace() }
                         Divider()
@@ -60,15 +60,14 @@ struct StudioView: View {
         .onAppear { if let id = store.focusedSpace { spaceID = id }; if let id = store.focusedBoard { boardID = id } }
         .onChange(of: store.focusedSpace) { id in spaceID = id; boardID = store.focusedBoard }
         .onChange(of: store.focusedBoard) { id in spaceID = store.focusedSpace; boardID = id }
-        .alert(renamingSpace ? "Rename space" : "New space", isPresented: $showNewSpace) {
+        .alert("New space", isPresented: $showNewSpace) {
             TextField("Project or client name", text: $newName)
-            Button(renamingSpace ? "Rename" : "Create") {
+            Button("Create") {
                 let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if renamingSpace, let index = store.state.spaces.firstIndex(where: { $0.id == space?.id }) { store.state.spaces[index].name = name.isEmpty ? "Untitled space" : name; store.save() }
-                else { spaceID = store.addSpace(name); boardID = store.addBoard(space: spaceID!, fonts: library.compared.map { library.chosenFace($0).name }) }
-                newName = ""; renamingSpace = false
+                spaceID = store.addSpace(name); boardID = store.addBoard(space: spaceID!, fonts: library.compared.map { library.chosenFace($0).name })
+                newName = ""
             }
-            Button("Cancel", role: .cancel) { newName = ""; renamingSpace = false }
+            Button("Cancel", role: .cancel) { newName = "" }
         }
         .alert("Delete this space and its typeboards?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { if let space { store.state.spaces.removeAll { $0.id == space.id }; store.save(); spaceID = nil; boardID = nil } }
@@ -87,17 +86,29 @@ struct StudioView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(store.state.spaces) { item in
-                        Button { spaceID = item.id; boardID = nil; store.focusedSpace = item.id; store.focusedBoard = nil; store.save() } label: {
-                            Label(item.displayName, systemImage: "rectangle.3.group").fontWeight(.medium).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(space?.id == item.id ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        }.buttonStyle(.plain)
+                        HStack(spacing: 8) {
+                            Button { selectSpace(item.id) } label: { Image(systemName: "rectangle.3.group") }.buttonStyle(.plain).accessibilityLabel("Open " + item.displayName)
+                            ShelfEditableName(name: item.displayName, selected: space?.id == item.id, onSelect: { selectSpace(item.id) }, onRename: { setSpaceName(item.id, $0) })
+                        }.fontWeight(.medium).padding(10).background(space?.id == item.id ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8)).contextMenu { Button("Rename space…") { renameSpace(item) } }
                         ForEach(item.boards) { child in
-                            StudioBoardRow(name: child.name, selected: board?.id == child.id, onSelect: { spaceID = item.id; boardID = child.id; store.focusedSpace = item.id; store.focusedBoard = child.id; store.save() }, onDelete: { deletingBoard = (item.id, child) })
+                            StudioBoardRow(name: child.name, selected: board?.id == child.id, onSelect: { spaceID = item.id; boardID = child.id; store.focusedSpace = item.id; store.focusedBoard = child.id; store.save() }, onRename: {
+                                if let name = ShelfRename.prompt("Rename typeboard", current: child.name) { var renamed = child; renamed.name = name; store.update(space: item.id, board: renamed, action: "Rename Typeboard") }
+                            }, onRenameInline: { name in var renamed = child; renamed.name = name; store.update(space: item.id, board: renamed, action: "Rename Typeboard"); return true }, onDelete: { deletingBoard = (item.id, child) })
                         }
                     }
                 }
             }
             Menu("Import…") { Button("Space…") { importSpace() }; Button("Figma typeboard JSON…") { importFigma() }; Button("Using a native .fig file…") { figFileHelp() } }.menuStyle(.borderlessButton).fixedSize().padding(.bottom, 12)
         }.padding(.horizontal, 12)
+    }
+    func renameSpace(_ target: DesignSpace) {
+        if let name = ShelfRename.prompt("Rename space", current: target.displayName) { _ = setSpaceName(target.id, name) }
+    }
+    func selectSpace(_ id: UUID) { spaceID = id; boardID = nil; store.focusedSpace = id; store.focusedBoard = nil; store.save() }
+    func setSpaceName(_ id: UUID, _ name: String) -> Bool { guard let index = store.state.spaces.firstIndex(where: { $0.id == id }) else { return false }; store.state.spaces[index].name = name; store.save(); return true }
+    func exportHandoff(_ space: DesignSpace) {
+        do { if let folder = try DeveloperHandoff.selectFolder(title: space.displayName, boards: space.boards, catalog: library.families) { store.error = ""; NSWorkspace.shared.activateFileViewerSelecting([folder]) } }
+        catch { store.error = "Handoff export failed: " + error.localizedDescription }
     }
     func exportSpace(_ space: DesignSpace) {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "\(space.name).fontshelf.json"
@@ -138,14 +149,17 @@ struct StudioBoardRow: View {
     let name: String
     let selected: Bool
     let onSelect: () -> Void
+    let onRename: () -> Void
+    let onRenameInline: (String) -> Bool
     let onDelete: () -> Void
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: onSelect) { HStack { Image(systemName: "rectangle.on.rectangle"); Text(name).lineLimit(2); Spacer(minLength: 0) }.contentShape(Rectangle()) }.buttonStyle(.plain)
+            Button(action: onSelect) { Image(systemName: "rectangle.on.rectangle") }.buttonStyle(.plain).accessibilityLabel("Open " + name)
+            ShelfEditableName(name: name, selected: selected, onSelect: onSelect, onRename: onRenameInline)
             Button(action: onDelete) { Image(systemName: "trash").frame(width: 28, height: 28).contentShape(Rectangle()) }.buttonStyle(.borderless).help("Delete " + name).accessibilityLabel("Delete " + name)
         }.font(.caption).padding(.leading, 16).padding(6).foregroundStyle(selected ? ShelfPalette.ink : Color.secondary)
             .background(selected ? Color.primary.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 6)).contentShape(Rectangle())
-            .contextMenu { Button("Delete typeboard…", role: .destructive, action: onDelete) }
+            .contextMenu { Button("Rename typeboard…", action: onRename); Button("Delete typeboard…", role: .destructive, action: onDelete) }
     }
 }
 
@@ -206,13 +220,18 @@ struct TypeBoardEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                TextField("Typeboard name", text: Binding(get: { board.name }, set: { board.name = $0; save() })).textFieldStyle(.plain).font(.headline).frame(minWidth: 110)
+                ShelfEditableName(name: board.name, onRename: { name in board.name = name; save("Rename Typeboard"); return true }).font(.headline).frame(minWidth: 110)
                 Spacer(minLength: 12)
                 Menu("Add canvas") {
                     Button("Blank canvas") { let canvas = TypeDirection(name: board.nextCanvasName); board.directions.append(canvas); board.selectedDirection = canvas.id; save("Add Canvas") }
                     Button("Duplicate current canvas") { let copy = direction.copy(name: board.nextCanvasName); board.directions.append(copy); board.selectedDirection = copy.id; save("Duplicate Canvas") }
                 }.fixedSize()
                 Menu("Export") {
+                    Button("Developer handoff…") {
+                        do { if let folder = try DeveloperHandoff.selectFolder(title: board.name, boards: [board], catalog: library.families) { status = "Developer handoff exported. Open index.html for the specimen; README explains font setup."; NSWorkspace.shared.activateFileViewerSelecting([folder]) } }
+                        catch { status = "Handoff export failed: " + error.localizedDescription }
+                    }
+                    Divider()
                     Button("Preview PDF…") { exportPDF() }
                     Button("Editable Figma layout…") { exportFigma() }
                 }.fixedSize()

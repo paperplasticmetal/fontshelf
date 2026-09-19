@@ -1,5 +1,11 @@
 # Interaction checks — 0.16.0
 
+## 0.18.0 follow-up
+
+Verified the developer handoff exports every canvas into a local package with production CSS, variable axes and OpenType features, Tailwind v3/v4 configuration, versioned JSON tokens, preload examples, SwiftUI and Android Compose starter definitions, exact source-board data, and a standalone printable HTML specimen. The generated Swift file type-checks and the Tailwind configuration parses with every exported style. Font files are never copied; the manifest calls out licensing and required assets, while the specimen can use an already-installed local font for review.
+
+Project, typeboard, and collection names now edit directly in place without pencil buttons. Clicking a selected name enters editing immediately with the current name selected; Return saves and Escape cancels. An unselected sidebar name selects on first click and edits on double-click. Live checks covered sidebar and header editing, keyboard focus, saving, project synchronization, and duplicate collection-name protection. The empty QA collection created for these checks was removed afterward; the user's existing collection and projects were not changed.
+
 ## 0.17.0 follow-up
 
 Also verified the Add & Watch picker explains recursive updates, choosing a temporary empty folder opens Watched folders automatically, and the new entry has activation off by default. Stopped watching only that temporary test folder afterward; the user's three existing watches were left unchanged. Verified 200% canvas zoom through the menu and return to Fit. Library scanning can queue newly chosen folders instead of disabling the picker.

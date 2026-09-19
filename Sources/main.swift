@@ -531,7 +531,11 @@ struct ContentView: View {
             Group {
                 VStack(spacing: 6) {
                     ForEach(library.saved.collections.keys.sorted(), id: \.self) { name in
-                        nav(name, icon: "folder", key: "collection:" + name).contextMenu { Button("Delete collection", role: .destructive) { library.saved.collections.removeValue(forKey: name); library.save(); if library.selection == "collection:" + name { library.selection = "All Fonts" } } }
+                        HStack(spacing: 0) {
+                            Button { library.workspace = false; library.selection = "collection:" + name } label: { Image(systemName: "folder").frame(width: 28) }.buttonStyle(.plain).accessibilityLabel("Open collection " + name)
+                            ShelfEditableName(name: name, selected: library.selection == "collection:" + name, onSelect: { library.workspace = false; library.selection = "collection:" + name }, onRename: { library.renameCollection(name, to: $0) })
+                            Text("\(library.families.filter { library.matchesSection($0, "collection:" + name) }.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        }.padding(.horizontal, 10).padding(.vertical, 9).background(library.selection == "collection:" + name ? Color.accentColor.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 8).contextMenu { Button("Rename collection…") { renameCollection(name) }; Button("Delete collection", role: .destructive) { library.saved.collections.removeValue(forKey: name); library.save(); if library.selection == "collection:" + name { library.selection = "All Fonts" } } }
                     }
                     if library.saved.collections.isEmpty { Text("No collections").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 14).padding(.top, 5) }
                 }
@@ -565,9 +569,15 @@ struct ContentView: View {
             HStack { navIcon(icon, key: key); Text(title).lineLimit(1); Spacer(); Text("\(library.families.filter { library.matchesSection($0, key) }.count)").font(.caption).monospacedDigit().foregroundStyle(.secondary) }.padding(.horizontal, 10).padding(.vertical, 9).contentShape(Rectangle())
         }.buttonStyle(.plain).background(!library.workspace && library.selection == key ? Color.accentColor.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 8)
     }
+    func renameCollection(_ name: String) {
+        if let renamed = ShelfRename.prompt("Rename collection", current: name, validate: { candidate in candidate != name && library.saved.collections[candidate] != nil ? "A collection with this name already exists. Choose another name." : nil }) { _ = library.renameCollection(name, to: renamed) }
+    }
     var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) { Text(library.selection.replacingOccurrences(of: "collection:", with: "").replacingOccurrences(of: "tag:", with: "")).font(.system(size: 25, weight: .semibold)) }
+            if library.selection.hasPrefix("collection:") {
+                let name = String(library.selection.dropFirst(11))
+                ShelfEditableName(name: name, onRename: { library.renameCollection(name, to: $0) }).font(.system(size: 25, weight: .semibold)).frame(minWidth: 110)
+            } else { Text(library.selection.replacingOccurrences(of: "tag:", with: "")).font(.system(size: 25, weight: .semibold)) }
             Spacer()
             Button("New typeboard", systemImage: "text.badge.plus") { library.pairSelection(library.compared.map { library.chosenFace($0).name }) }.help("Create a typeboard in the current space using your shortlisted fonts")
             Button { library.showAdvanced.toggle() } label: { Image(systemName: library.advanced.active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Advanced filters").popover(isPresented: $library.showAdvanced) { AdvancedFiltersView(library: library) }
@@ -804,6 +814,9 @@ if let index = CommandLine.arguments.firstIndex(of: "--font-available"), Command
 } else if let index = CommandLine.arguments.firstIndex(of: "--integration-check"), CommandLine.arguments.count > index + 1 {
     do { try StudioChecks.integration(source: URL(fileURLWithPath: CommandLine.arguments[index + 1])) }
     catch { fputs("Integration check failed: \(error.localizedDescription)\n", stderr); exit(1) }
+} else if let index = CommandLine.arguments.firstIndex(of: "--handoff-fixture"), CommandLine.arguments.count > index + 1 {
+    do { print(try StudioChecks.handoff(catalog: FontCatalog.scan(), parent: URL(fileURLWithPath: CommandLine.arguments[index + 1])).path) }
+    catch { fputs("Handoff check failed: \(error.localizedDescription)\n", stderr); exit(1) }
 } else if CommandLine.arguments.contains("--self-test") {
     for pointSize in [52.0, 131.0] {
         let views = ["Helvetica", "Times-Roman"].map { name -> BaselineTextView in

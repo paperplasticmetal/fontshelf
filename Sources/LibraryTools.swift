@@ -2,6 +2,72 @@ import SwiftUI
 import AppKit
 import CoreText
 
+/// Names are the edit target. Sidebar names select first, then edit on a second click.
+struct ShelfEditableName: View {
+    let name: String
+    var selected = true
+    var onSelect: () -> Void = {}
+    let onRename: (String) -> Bool
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var invalid = false
+    @FocusState private var focused: Bool
+    var body: some View {
+        Group {
+            if editing {
+                TextField("Name", text: $draft).textFieldStyle(.plain).focused($focused)
+                    .onSubmit { commit() }
+                    .onExitCommand { editing = false; focused = false; invalid = false }
+                    .onChange(of: focused) { value in if !value && editing && !invalid { commit() } }
+                    .onAppear { DispatchQueue.main.async { focused = true } }
+            } else {
+                Text(name).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    .onTapGesture(count: 2) { begin() }
+                    .onTapGesture { if selected { begin() } else { onSelect() } }
+                    .help(selected ? "Click to rename" : "Click to select; double-click to rename")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { if selected { begin() } else { onSelect() } }
+                    .accessibilityAction(named: Text("Rename")) { begin() }
+            }
+        }.alert("Choose another name", isPresented: $invalid) {
+            Button("OK") { focused = true }
+        } message: { Text("Enter a nonempty name. Collection names must also be unique.") }
+    }
+    private func begin() { draft = name; editing = true }
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, onRename(trimmed) else { invalid = true; return }
+        editing = false; focused = false
+    }
+}
+
+enum ShelfRename {
+    static func prompt(_ title: String, current: String, validate: (String) -> String? = { _ in nil }) -> String? {
+        let alert = NSAlert(); alert.messageText = title; alert.informativeText = "Choose a name. Existing contents will stay unchanged."
+        alert.addButton(withTitle: "Rename"); alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: current); field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+        field.setAccessibilityLabel("Name"); alert.accessoryView = field; alert.window.initialFirstResponder = field
+        while alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { alert.informativeText = "Please enter a name." }
+            else if let error = validate(name) { alert.informativeText = error }
+            else { return name }
+        }
+        return nil
+    }
+}
+
+extension Library {
+    @discardableResult func renameCollection(_ old: String, to proposed: String) -> Bool {
+        let name = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let members = saved.collections[old], !name.isEmpty, name == old || saved.collections[name] == nil else { return false }
+        guard name != old else { return true }
+        saved.collections[name] = members; saved.collections.removeValue(forKey: old)
+        if selection == "collection:" + old { selection = "collection:" + name }
+        return save()
+    }
+}
+
 struct AdvancedFiltersView: View {
     @ObservedObject var library: Library
     var body: some View {

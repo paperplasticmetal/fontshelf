@@ -3,6 +3,40 @@ import AppKit
 import CoreText
 
 enum StudioChecks {
+    @discardableResult static func handoff(catalog: [Family], parent: URL) throws -> URL {
+        var board = TypeBoard(); board.name = "Studio <handoff> & review"
+        var canvas = TypeDirection(name: "Canvas 1")
+        canvas.styles[TypeRole.display.rawValue]!.text = "A <script>alert('never')</script> & \"quote\" \\ $name café 🖋\nSecond line"
+        canvas.styles[TypeRole.display.rawValue]!.axes = [2003265652: 520]
+        canvas.styles[TypeRole.body.rawValue]!.features = ["liga": 0]
+        canvas.styles[TypeRole.body.rawValue]!.kerning = false
+        canvas.styles[TypeRole.body.rawValue]!.lineHeight = 29
+        board.directions = [canvas, canvas.copy(name: "Canvas 2")]
+        board.directions[1].styles[TypeRole.caption.rawValue]!.fontName = "Missing Font </style><script>bad</script>"
+        let folder = try DeveloperHandoff.write(title: board.name, boards: [board], catalog: catalog, parent: parent)
+        func read(_ name: String) throws -> String { try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8) }
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        try verify(files.count == 11 && files.contains("Typography.swift") && files.contains("Typography.kt"), "Complete handoff package")
+        let fontFiles = try FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("fonts").path)
+        try verify(fontFiles.isEmpty, "Never redistribute font binaries")
+        let tokens = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("tokens.json"))) as! [String: Any]
+        let styles = tokens["typography"] as! [String: [String: Any]]
+        try verify(styles.count >= 14 && Set(styles.keys).count == styles.count, "All canvases, unique styles")
+        let value = styles["b1-c1-display"]!["$value"] as! [String: Any]
+        try verify((value["axes"] as? [String: Double])?["wght"] == 520, "Variable axes preserved")
+        let html = try read("index.html"), css = try read("typography.css")
+        try verify(!html.contains("<script>") && html.contains("&lt;script&gt;") && html.contains("café 🖋"), "HTML must escape sample text and retain Unicode")
+        try verify(css.contains("clamp(") && css.contains("\"wght\" 520") && css.contains("font-display: swap") && css.contains("font-feature-settings: \"kern\" 0, \"liga\" 0"), "CSS carries axes, features and loading policy")
+        try verify(DeveloperHandoff.fluid(16) == "1rem" && DeveloperHandoff.number(0) == "0" && DeveloperHandoff.number(100) == "100", "Fluid scale and numeric precision")
+        let manifest = try read("fonts.json")
+        try verify(!manifest.contains("/Users/") && manifest.contains("\"availableOnExportingMac\" : false"), "Missing fonts marked without leaking local paths")
+        let restored = try JSONDecoder().decode([TypeBoard].self, from: JSONSerialization.data(withJSONObject: tokens["sourceBoards"]!))
+        try verify(restored == [board], "Handoff retains exact source design data")
+        let second = try DeveloperHandoff.write(title: board.name, boards: [board], catalog: catalog, parent: parent)
+        try verify(second != folder && FileManager.default.fileExists(atPath: folder.path), "Repeated export must not overwrite")
+        print("PASS: developer handoff files, all canvases, axes/features, source round-trip, escaping, font licensing safeguards and no-overwrite export.")
+        return folder
+    }
     static func verify(_ condition: @autoclosure () -> Bool, _ message: String = "Assertion failed", line: Int = #line) throws {
         if !condition() { throw NSError(domain: "FontShelfCheck", code: line, userInfo: [NSLocalizedDescriptionKey: "\(message) (StudioChecks.swift:\(line))"]) }
     }
@@ -48,6 +82,7 @@ enum StudioChecks {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("FontShelf-studio-checks-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        try handoff(catalog: catalog, parent: root)
         let store = StudioStore(url: root.appendingPathComponent("spaces.json"))
         let space = store.addSpace("Client"), boardID = store.addBoard(space: space, fonts: ["Georgia", "Helvetica"])!
         var board = store.state.spaces[0].boards[0]
@@ -74,6 +109,12 @@ enum StudioChecks {
         try verify(Set(scoped.map(\.name)) == Set(filterSample.faces.map(\.name)), "Font chooser must honor collection and user category override")
         try verify(StudioFontFilter.faces(library: filterLibrary, collection: "collection:Studio shortlist", category: "Serif", search: "").isEmpty, "Chooser filters intersect")
         try verify(StudioFontFilter.faces(library: filterLibrary, collection: "Favorites", category: "All categories", search: "").count == filterSample.faces.count, "Chooser favorites")
+        filterLibrary.selection = "collection:Studio shortlist"
+        try verify(filterLibrary.renameCollection("Studio shortlist", to: " Project fonts "), "Collection rename")
+        try verify(filterLibrary.saved.collections["Project fonts"] == [filterSample.name] && filterLibrary.saved.collections["Studio shortlist"] == nil && filterLibrary.selection == "collection:Project fonts", "Rename must preserve members and selection")
+        filterLibrary.saved.collections["Existing"] = []
+        try verify(!filterLibrary.renameCollection("Project fonts", to: "Existing") && !filterLibrary.renameCollection("Project fonts", to: "  "), "Rename cannot overwrite another collection or accept blank names")
+        try verify(Library(storageURL: root.appendingPathComponent("filters/library.json")).saved.collections["Project fonts"] == [filterSample.name], "Collection rename persists")
         try verify(board.id == boardID)
         var duplicate = board.directions[0].copy(name: "Direction B")
         duplicate.styles[TypeRole.body.rawValue]!.fontName = "Courier"

@@ -99,6 +99,30 @@ enum StudioChecks {
         let textData = try JSONEncoder().encode(textCanvas)
         let decodedTextCanvas = try JSONDecoder().decode(TypeDirection.self, from: textData)
         try verify(CanvasPlan(direction: decodedTextCanvas).elements.first { $0.textID == textID }?.text?.string == "Explore the studio", "Selected text override must persist and render")
+        let canvasA = UUID(), canvasB = UUID(), canvasC = UUID()
+        var visible = CanvasVisibility.solo(canvasA)
+        visible = CanvasVisibility.selecting(canvasB, from: canvasA, shown: visible)
+        visible = CanvasVisibility.selecting(canvasC, from: canvasB, shown: visible)
+        try verify(visible == [canvasA, canvasB, canvasC], "Selecting another canvas must preserve the visible comparison set")
+        visible.remove(canvasA)
+        try verify(CanvasVisibility.prune(visible, valid: [canvasA, canvasC], selected: canvasC) == [canvasC] && CanvasVisibility.solo(canvasB) == [canvasB], "Canvas hide, prune and solo state")
+        var inserted = TypeDirection(); let beforeInsert = CanvasPlan(direction: inserted)
+        let insertedID = inserted.insert(.heading, target: beforeInsert.sections[1].id, before: true, visible: beforeInsert.sections.map(\.id))
+        let afterInsert = CanvasPlan(direction: inserted)
+        try verify(afterInsert.sections.map(\.id).firstIndex(of: insertedID) == 1, "Dragged type role was not inserted at its drop position")
+        try verify(afterInsert.elements.contains { $0.sectionID == insertedID && $0.role == .heading && $0.text?.string == inserted.style(.heading).text }, "Dragged role must carry its saved style and sample text")
+        let rolePayload = inserted.id.uuidString + "|role|" + TypeRole.heading.rawValue
+        let sectionPayload = inserted.id.uuidString + "|section|" + afterInsert.sections[0].id
+        try verify(CanvasDragPayload.parse(rolePayload, directionID: inserted.id, sectionIDs: Set(afterInsert.sections.map(\.id)), acceptsRoles: true) == .role(.heading), "Role drag payload")
+        try verify(CanvasDragPayload.parse(rolePayload, directionID: inserted.id, sectionIDs: Set(afterInsert.sections.map(\.id)), acceptsRoles: false) == nil, "Read-only canvas must reject role drops")
+        try verify(CanvasDragPayload.parse(sectionPayload, directionID: inserted.id, sectionIDs: Set(afterInsert.sections.map(\.id)), acceptsRoles: false) == .section(afterInsert.sections[0].id), "Section drag payload")
+        var summaryDirection = TypeDirection(); summaryDirection.styles[TypeRole.body.rawValue]!.fontName = "Courier"; summaryDirection.styles[TypeRole.body.rawValue]!.tracking = 1.5
+        let summary = CanvasTypographySummary(canvas: "Canvas 1", direction: summaryDirection)
+        try verify(summary.fonts.contains("Georgia") && summary.fonts.contains("Courier") && summary.text(.roles).contains("Body: Courier"), "Canvas font summary must report fonts actually used by role")
+        try verify(summary.text(.full).contains("tracking 1.5 px") && summary.text(.fonts, markdown: true).contains("`Courier`"), "Typography summary detail levels")
+        var markdownDirection = TypeDirection(); markdownDirection.name = "A *test*"; markdownDirection.styles[TypeRole.body.rawValue]!.fontName = "Font`Name"
+        let markdownSummary = CanvasTypographySummary(canvas: markdownDirection.name, direction: markdownDirection).text(.fonts, markdown: true)
+        try verify(markdownSummary.contains("A \\*test\\*") && markdownSummary.contains("``Font`Name``"), "Typography Markdown must escape designer text safely")
         let filterLibrary = Library(storageURL: root.appendingPathComponent("filters/library.json"))
         filterLibrary.families = catalog
         let filterSample = catalog[0]
@@ -235,10 +259,12 @@ enum StudioChecks {
         try verify(glyphs.count == CTFontGetGlyphCount(font) - 1)
         try verify(GlyphCatalog.svg(font: font, glyph: capitalA.glyph)?.contains("<path") == true)
         var plans = 0
+        var formatSignatures: Set<String> = []
         for kind in CanvasKind.allCases {
             for width in [390.0, 768, 960, 1200] {
                 var d = TypeDirection(); d.canvas = kind; d.width = width
                 let plan = CanvasPlan(direction: d)
+                if width == 960, ![CanvasKind.custom, .imported].contains(kind) { formatSignatures.insert(plan.sections.map(\.title).joined(separator: "|")) }
                 try verify(plan.size.height.isFinite && plan.size.width == width)
                 try verify(plan.elements.allSatisfy { $0.rect.minX >= 0 && $0.rect.maxX <= width + 1 && $0.rect.minY >= 0 && $0.rect.maxY <= plan.size.height }, "Canvas clipped content")
                 plans += 1
@@ -254,6 +280,7 @@ enum StudioChecks {
                 }
             }
         }
+        try verify(formatSignatures.count == 5, "Website, product UI, editorial, poster and type-system compositions must remain distinct")
         let figmaData = try JSONSerialization.data(withJSONObject: FigmaLayoutExporter.payload(board: board))
         let figma = try JSONSerialization.jsonObject(with: figmaData) as! [String: Any]
         try verify(figma["format"] as? String == "fontshelf-figma" && (figma["frames"] as? [[String: Any]])?.count == 2)

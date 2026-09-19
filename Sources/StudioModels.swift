@@ -87,6 +87,16 @@ struct TypeDirection: Codable, Identifiable, Equatable {
         guard let index = order.firstIndex(of: target) else { return }
         order.insert(source, at: index + (before ? 0 : 1)); sectionOrder = order
     }
+    @discardableResult mutating func insert(_ role: TypeRole, target: String?, before: Bool, visible: [String]) -> String {
+        let block = LayoutBlock(role: role)
+        addedBlocks = (addedBlocks ?? []) + [block]
+        let sectionID = canvas.rawValue + ":" + block.id
+        var order = visible
+        if let target, let index = order.firstIndex(of: target) { order.insert(sectionID, at: index + (before ? 0 : 1)) }
+        else { order.append(sectionID) }
+        sectionOrder = order
+        return sectionID
+    }
 }
 struct ImportedLayer: Codable, Identifiable, Equatable {
     var id = UUID().uuidString

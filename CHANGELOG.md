@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.19.0 — 2026-09-19
+
+- Replaced implicit canvas comparison state with an explicit visible-canvas set. Selecting canvases builds a stable comparison; per-canvas Hide, Only this, Show all and the checkmarked Shown menu make returning to a single canvas immediate.
+- Added a Fonts used summary for the active canvas with font-only, role mapping and full typography levels, plus clipboard, plain-text and Markdown handoff.
+- Linked type-role selection to its first visible canvas use and made roles draggable onto the active canvas with their saved sample text and typography settings.
+- Redesigned website, product UI, editorial and poster canvases as distinct, purpose-specific compositions while retaining rearrangeable sections and responsive widths.
+- Added regression coverage for canvas visibility continuity, role-drop placement and payload validation, typography summary exports and template distinctness.
+
+## 0.18.0 — 2026-09-16
+
+- Added one-click developer handoff packages with CSS, fluid scales, preload guidance, Tailwind configuration, design-token JSON, SwiftUI, Android Compose and printable HTML output.
+- Made space, typeboard and collection names directly editable by clicking their text, with keyboard save/cancel and duplicate-name protection.
+
 ## 0.17.0 — 2026-09-16
 
 - Simplified vocabulary to Spaces → Typeboards → Canvases, with visible canvas tabs, a Show all canvases toggle and clearer New typeboard/Add canvas commands. Legacy generated labels display as Canvas 1, Canvas 2, etc. without rewriting saved names.

@@ -1,4 +1,14 @@
-# Interaction checks — 0.16.0
+# Interaction checks — 0.19.0
+
+## 0.19.0 follow-up
+
+Verified that selecting Canvas 1, Canvas 2 and Canvas 3 preserves all three in the visible comparison; hiding an inactive canvas removes only that canvas, and **Only this** returns to the active canvas in one action. The checkmarked **Shown** menu provides the same explicit controls plus Show every canvas, while Quick A/B remains a separate same-format, same-width switching mode.
+
+The canvas toolbar now exposes the actual font count for the active composition. Its summary was checked at all three detail levels: unique font names, font-to-role mapping, and full size/line-height/tracking/axis/feature settings. Copy, plain-text export and Markdown export share the same visible-text-only model; automated checks cover Markdown escaping for designer-controlled names.
+
+Type-role buttons report their number of visible uses. Clicking a used role locates its first matching canvas element and exposes the exact selected text; drag payloads add another instance at the indicated canvas insertion point with the role's saved sample and shared typography. Automated checks cover insertion order, style/sample preservation, cross-canvas payload rejection and read-only comparison rejection. A physical automated SwiftUI-to-AppKit role drag could not be triggered reliably, so that gesture still merits hands-on trackpad testing.
+
+Website and poster formats were inspected live as distinct compositions rather than simple size variants. Layout validation covers those plus product UI and editorial at 390, 768, 960 and 1200 points; the regression suite also requires unique section signatures across every designed format.
 
 ## 0.18.0 follow-up
 

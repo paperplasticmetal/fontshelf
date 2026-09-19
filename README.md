@@ -4,13 +4,15 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.18.0 (build 26).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.19.0 (build 27).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 **Developer handoff:** In a typeboard, choose **Export → Developer handoff…** for all its canvases, or use the space actions menu to export the whole project. One folder contains `@font-face` declarations, axes/features, CSS variables and suggested fluid `clamp()` scales, fallback stacks, preload examples, font-display guidance, Tailwind v3/v4 setup, versioned token JSON, SwiftUI and Compose starter definitions, and a standalone printable HTML specimen. Font binaries are never bundled: supply licensed web/app assets at the manifest paths. The README documents defaults and native integration work; the specimen is a typography reference, not a pixel-perfect layout export.
 
 **Rename:** Click a selected space, typeboard or collection name to edit it directly, in the sidebar or main header. Double-click an unselected name to rename it. Return saves; Escape cancels. Sidebar context menus also offer Rename. Collection renaming preserves membership and selection and prevents overwriting an existing collection.
 
-Spaces contain typeboards, and typeboards contain canvases. Canvas tabs switch what you edit; **Show all canvases** displays them together. **Add canvas** creates a blank canvas or duplicates the current one. Click text on the active canvas to edit that exact content and its shared type role. The font chooser includes collections, favorites, categories (including your overrides), and #tag search. Pinch over the canvas viewport, or use ⌘ + mouse-wheel scrolling, to zoom; ordinary scrolling pans and the zoom menu returns to Fit.
+Spaces contain typeboards, and typeboards contain canvases. Selecting another canvas keeps the current comparison visible; use **Only this**, each comparison's close button, or the **Shown** menu to hide it again. **Show all** displays every canvas, while Quick A/B solos two same-size alternatives for rapid switching. **Add canvas** creates a blank canvas or duplicates the current one. Click text or a type role to locate and edit its exact canvas use; drag a role onto the active canvas to add its saved sample text and settings. The font chooser includes collections, favorites, categories (including your overrides), and #tag search. Pinch over the canvas viewport, or use ⌘ + mouse-wheel scrolling, to zoom; ordinary scrolling pans and the zoom menu returns to Fit.
+
+Each canvas toolbar shows the number of fonts actually used. Open it for a compact font-only list, a font-and-role map, or full typography specifications with size, line height, tracking, variable axes and OpenType features; copy or export the result as plain text or Markdown. Website, product UI, editorial and poster formats use purpose-specific compositions rather than the same generic stack.
 
 **Live folders:** Add font folder explains recursive watching in the picker, then opens the folder manager. **Live folders** is always accessible in the Library sidebar. Watching updates additions, replacements and removals while the app is open; activation for other apps remains a separate opt-in.
 

@@ -163,6 +163,27 @@ struct StudioBoardRow: View {
     }
 }
 
+enum CanvasVisibility {
+    static func selecting(_ next: UUID, from current: UUID, shown: Set<UUID>) -> Set<UUID> { shown.union([current, next]) }
+    static func solo(_ id: UUID) -> Set<UUID> { [id] }
+    static func prune(_ shown: Set<UUID>, valid: Set<UUID>, selected: UUID?) -> Set<UUID> { shown.intersection(valid).union(selected.map { [$0] } ?? []) }
+}
+
+enum CanvasDragPayload {
+    enum Source: Equatable { case section(String), role(TypeRole) }
+    static func parse(_ value: String, directionID: UUID, sectionIDs: Set<String>, acceptsRoles: Bool) -> Source? {
+        let prefix = directionID.uuidString + "|"
+        guard value.hasPrefix(prefix) else { return nil }
+        let payload = String(value.dropFirst(prefix.count))
+        if payload.hasPrefix("role|") {
+            guard acceptsRoles, let role = TypeRole(rawValue: String(payload.dropFirst(5))) else { return nil }
+            return .role(role)
+        }
+        let id = payload.hasPrefix("section|") ? String(payload.dropFirst(8)) : payload
+        return sectionIDs.contains(id) ? .section(id) : nil
+    }
+}
+
 extension TypeDirection {
     var isValid: Bool {
         width.isFinite && (canvas == .imported ? (1...10000).contains(width) : (320...1600).contains(width)) && (importedLayout?.isValid ?? (canvas != .imported)) && (textOverrides.map { $0.count <= 5000 && $0.values.allSatisfy { $0.utf8.count <= 200000 } } ?? true) && TypeRole.allCases.allSatisfy { role in
@@ -181,18 +202,20 @@ struct TypeBoardEditor: View {
     init(library: Library, savedBoard: TypeBoard, onSave: @escaping (TypeBoard, String) -> Void, onDelete: @escaping () -> Void) {
         self.library = library; self.savedBoard = savedBoard; self.onSave = onSave; self.onDelete = onDelete
         _board = State(initialValue: savedBoard)
+        _shownCanvasIDs = State(initialValue: Set([savedBoard.selectedDirection ?? savedBoard.directions.first?.id].compactMap { $0 }))
     }
     @State private var role = TypeRole.display
     @State private var fontSearch = ""
     @State private var fontCollection = "All fonts"
     @State private var fontCategory = "All categories"
-    @State private var showAllCanvases = false
+    @State private var shownCanvasIDs: Set<UUID>
     @State private var selectedTextID: String?
-    @State private var compareID: UUID?
     @State private var zoom = 0.0
     @State private var showDelete = false
     @State private var status = ""
     @State private var showFontPicker = false
+    @State private var showFontSummary = false
+    @State private var fontSummaryDetail = TypographySummaryDetail.roles
     @State private var draggedSection: String?
     @State private var selectedSection: String?
     @State private var abID: UUID?
@@ -200,9 +223,12 @@ struct TypeBoardEditor: View {
     @FocusState private var fontSearchFocused: Bool
     var directionIndex: Int { board.directions.firstIndex { $0.id == board.selectedDirection } ?? 0 }
     var direction: TypeDirection { board.directions[directionIndex] }
+    var visibleDirections: [TypeDirection] { board.directions.filter { shownCanvasIDs.contains($0.id) || $0.id == direction.id } }
+    var showingAllCanvases: Bool { !board.directions.isEmpty && Set(board.directions.map(\.id)).isSubset(of: shownCanvasIDs) }
     var importedLayerIndex: Int? { guard direction.canvas == .imported else { return nil }; return direction.importedLayout?.layers.firstIndex { $0.id == selectedSection && $0.style != nil } ?? direction.importedLayout?.layers.firstIndex { $0.style != nil } }
     var selectedText: CanvasElement? { guard let selectedTextID else { return nil }; return CanvasPlan(direction: direction).elements.first { $0.textID == selectedTextID } }
     var style: TypeStyle { if let index = importedLayerIndex, let style = direction.importedLayout?.layers[index].style { return style }; return selectedText?.style ?? direction.style(role) }
+    var fontSummary: CanvasTypographySummary { CanvasTypographySummary(canvas: board.canvasName(direction), direction: direction) }
     var editingTitle: String { if let index = importedLayerIndex { return direction.importedLayout?.layers[index].name ?? "Text layer" }; return role.rawValue }
     func setStyle(_ style: TypeStyle) {
         if let index = importedLayerIndex { board.directions[directionIndex].importedLayout?.layers[index].style = style }
@@ -226,7 +252,9 @@ struct TypeBoardEditor: View {
                     Button("Blank canvas") { let canvas = TypeDirection(name: board.nextCanvasName); board.directions.append(canvas); board.selectedDirection = canvas.id; save("Add Canvas") }
                     Button("Duplicate current canvas") { let copy = direction.copy(name: board.nextCanvasName); board.directions.append(copy); board.selectedDirection = copy.id; save("Duplicate Canvas") }
                 }.fixedSize()
+                Button { showFontSummary.toggle() } label: { Label("\(fontSummary.fonts.count) fonts used", systemImage: "textformat") }.fixedSize().popover(isPresented: $showFontSummary) { fontSummaryPopover }
                 Menu("Export") {
+                    Button("Typography summary…") { showFontSummary = true }
                     Button("Developer handoff…") {
                         do { if let folder = try DeveloperHandoff.selectFolder(title: board.name, boards: [board], catalog: library.families) { status = "Developer handoff exported. Open index.html for the specimen; README explains font setup."; NSWorkspace.shared.activateFileViewerSelecting([folder]) } }
                         catch { status = "Handoff export failed: " + error.localizedDescription }
@@ -242,17 +270,17 @@ struct TypeBoardEditor: View {
                     }.disabled((board.checkpoints ?? []).isEmpty)
                     Button("Add shortlist as candidates") { board.candidates = Array(Set(board.candidates + library.compared.map { library.chosenFace($0).name })).sorted(); save() }
                     Divider()
-                    Button("Delete canvas", role: .destructive) { let id = direction.id; board.directions.removeAll { $0.id == id }; board.selectedDirection = board.directions.first?.id; compareID = nil; abID = nil; save("Delete Canvas") }.disabled(board.directions.count < 2)
+                    Button("Delete canvas", role: .destructive) { let id = direction.id; board.directions.removeAll { $0.id == id }; shownCanvasIDs.remove(id); board.selectedDirection = board.directions.first?.id; if let selected = board.selectedDirection { shownCanvasIDs.insert(selected) }; abID = nil; save("Delete Canvas") }.disabled(board.directions.count < 2)
                     Button("Delete typeboard…", role: .destructive) { showDelete = true }
                 } label: { Image(systemName: "ellipsis") }.shelfIconMenu().help("Typeboard actions").accessibilityLabel("Typeboard actions")
             }.padding(14).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) { ForEach(board.directions) { canvas in
-                        Button { board.selectedDirection = canvas.id; save() } label: { Text(board.canvasName(canvas)).lineLimit(1).padding(.horizontal, 12).padding(.vertical, 7).background(canvas.id == direction.id ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Edit " + board.canvasName(canvas))
+                        Button { selectCanvas(canvas.id) } label: { HStack(spacing: 5) { if shownCanvasIDs.contains(canvas.id) || canvas.id == direction.id { Image(systemName: "eye.fill").font(.caption2) }; Text(board.canvasName(canvas)).lineLimit(1) }.padding(.horizontal, 12).padding(.vertical, 7).background(canvas.id == direction.id ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Edit and show " + board.canvasName(canvas))
                     } }
                 }
-                Toggle("Show all canvases", isOn: $showAllCanvases).toggleStyle(.button).fixedSize().disabled(board.directions.count < 2).onChange(of: showAllCanvases) { enabled in if enabled { compareID = nil; abID = nil } }
+                Button(showingAllCanvases ? "Only current" : "Show all") { if showingAllCanvases { showOnlyCurrent() } else { shownCanvasIDs = Set(board.directions.map(\.id)); abID = nil } }.disabled(board.directions.count < 2).fixedSize()
             }.frame(height: 36).padding(.horizontal, 14).padding(.bottom, 10)
             HStack {
                 ShelfDropdown(title: "Format", selection: directionBinding(\.canvas), options: CanvasKind.allCases.filter { $0 != .imported || direction.importedLayout != nil }.map { ($0.rawValue, $0) }).frame(minWidth: 115, idealWidth: 180, maxWidth: 210)
@@ -260,16 +288,23 @@ struct TypeBoardEditor: View {
                 else { ShelfDropdown(title: "Width", selection: directionBinding(\.width), options: [("Mobile · 390", 390.0), ("Tablet · 768", 768.0), ("Desktop · 1200", 1200.0), ("Canvas · 960", 960.0)], showsTitle: false).frame(width: 132) }
                 Spacer()
                 Menu {
-                    Button("Single canvas") { compareID = nil; abID = nil; showAllCanvases = false }
+                    Button("Only " + board.canvasName(direction)) { showOnlyCurrent() }.disabled(visibleDirections.count == 1 && abID == nil)
+                    Button("Show every canvas") { shownCanvasIDs = Set(board.directions.map(\.id)); abID = nil }.disabled(showingAllCanvases)
+                    Divider()
+                    ForEach(board.directions) { candidate in
+                        Button((shownCanvasIDs.contains(candidate.id) || candidate.id == direction.id ? "✓ " : "") + board.canvasName(candidate)) {
+                            guard candidate.id != direction.id else { return }
+                            if shownCanvasIDs.contains(candidate.id) { shownCanvasIDs.remove(candidate.id) } else { shownCanvasIDs.insert(candidate.id) }
+                            abID = nil
+                        }.disabled(candidate.id == direction.id)
+                    }
+                    Divider()
                     Menu("Quick A/B") {
                         let candidates = board.directions.filter { $0.id != direction.id && $0.canvas == direction.canvas && $0.width == direction.width }
                         if candidates.isEmpty { Text("Duplicate a canvas to start"); Text("Use the same format and width") }
-                        ForEach(candidates) { candidate in Button(board.canvasName(candidate)) { abID = candidate.id; compareID = nil; showAllCanvases = false } }
-                    }
-                    Menu("Side by side") {
-                        ForEach(board.directions.filter { $0.id != direction.id }) { candidate in Button(board.canvasName(candidate)) { compareID = candidate.id; abID = nil; showAllCanvases = false } }
+                        ForEach(candidates) { candidate in Button(board.canvasName(candidate)) { abID = candidate.id; shownCanvasIDs = [direction.id] } }
                     }.disabled(board.directions.count < 2)
-                } label: { Label(abID != nil ? "A/B" : compareID != nil ? "Comparing" : "Compare", systemImage: "rectangle.split.2x1") }.fixedSize()
+                } label: { Label(abID != nil ? "A/B" : "Shown · \(visibleDirections.count)", systemImage: "rectangle.split.2x1") }.fixedSize().help("Choose exactly which canvases are visible")
                 if abID != nil { Button { swapAB() } label: { Image(systemName: "arrow.left.arrow.right") }.keyboardShortcut("\\", modifiers: [.command]).help("Swap A/B (⌘\\)").accessibilityLabel("Swap A/B") }
                 Menu(zoom == 0 ? "Fit" : "\(Int(zoom * 100))%") { Button("Fit all visible canvases") { zoom = 0 }; ForEach([0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0], id: \.self) { value in Button("\(Int(value * 100))%") { zoom = value } } }.fixedSize().help("Pinch to zoom, or hold ⌘ while scrolling with a mouse. Scroll normally to pan.")
             }.padding(.horizontal, 14).padding(.bottom, 12).fixedSize(horizontal: false, vertical: true)
@@ -280,8 +315,7 @@ struct TypeBoardEditor: View {
                     if library.loading { ProgressView(library.families.isEmpty ? "Loading font library…" : "Checking watched font folders…").controlSize(.small).padding(10) }
                     else if !missingFonts.isEmpty { Label("Unavailable fonts: " + missingFonts.joined(separator: ", ") + ". Preview uses fallback.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange).padding(12) }
                     GeometryReader { geometry in
-                    let other = board.directions.first(where: { $0.id == compareID && $0.id != direction.id })
-                    let visible = showAllCanvases ? board.directions : [direction] + (other.map { [$0] } ?? [])
+                    let visible = visibleDirections
                     let scale = zoom == 0 ? min(1, max(0.1, (geometry.size.width - 48 - Double(visible.count - 1) * 24) / visible.reduce(0) { $0 + $1.width })) : zoom
                     ScrollView([.horizontal, .vertical]) {
                         HStack(alignment: .top, spacing: 24) {
@@ -293,16 +327,19 @@ struct TypeBoardEditor: View {
                 }.frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
             }
         }.alert("Delete this typeboard?", isPresented: $showDelete) { Button("Delete", role: .destructive, action: onDelete); Button("Cancel", role: .cancel) {} }
-        .onChange(of: savedBoard) { value in if value != board { board = value } }
+        .onChange(of: savedBoard) { value in if value != board { board = value; shownCanvasIDs = CanvasVisibility.prune(shownCanvasIDs, valid: Set(value.directions.map(\.id)), selected: value.selectedDirection ?? value.directions.first?.id) } }
         .onChange(of: role) { _ in library.studio.endUndoCoalescing() }
         .onChange(of: selectedSection) { _ in library.studio.endUndoCoalescing() }
         .onChange(of: selectedTextID) { _ in library.studio.endUndoCoalescing() }
-        .onChange(of: direction.id) { _ in selectedSection = nil; selectedTextID = nil; draggedSection = nil; if let other = board.directions.first(where: { $0.id == abID }), other.canvas != direction.canvas || other.width != direction.width { abID = nil } }
+        .onChange(of: direction.id) { id in shownCanvasIDs.insert(id); selectedSection = nil; selectedTextID = nil; draggedSection = nil; if let other = board.directions.first(where: { $0.id == abID }), other.canvas != direction.canvas || other.width != direction.width { abID = nil } }
         .onChange(of: direction.canvas) { _ in abID = nil; selectedSection = nil; selectedTextID = nil }
         .onChange(of: direction.width) { _ in abID = nil }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("FontShelfMenu"))) { event in if event.object as? String == "find" { inspectorTab = "Typography"; DispatchQueue.main.async { showFontPicker = true } } }
     }
-    func swapAB() { guard let id = abID, board.directions.contains(where: { $0.id == id && $0.canvas == direction.canvas && $0.width == direction.width }) else { return }; abID = direction.id; board.selectedDirection = id; compareID = nil; save() }
+    func selectCanvas(_ id: UUID) { shownCanvasIDs = CanvasVisibility.selecting(id, from: direction.id, shown: shownCanvasIDs); board.selectedDirection = id; abID = nil; save() }
+    func showOnlyCurrent() { shownCanvasIDs = CanvasVisibility.solo(direction.id); abID = nil }
+    func hideCanvas(_ id: UUID) { guard id != direction.id else { return }; shownCanvasIDs.remove(id) }
+    func swapAB() { guard let id = abID, board.directions.contains(where: { $0.id == id && $0.canvas == direction.canvas && $0.width == direction.width }) else { return }; abID = direction.id; board.selectedDirection = id; shownCanvasIDs = [id]; save() }
     func moveSection(_ source: String, _ target: String, _ before: Bool) {
         let plan = CanvasPlan(direction: direction)
         if direction.canvas == .imported, var layout = direction.importedLayout, source != target, let index = layout.layers.firstIndex(where: { $0.id == source }) {
@@ -310,6 +347,20 @@ struct TypeBoardEditor: View {
             if let destination = layout.layers.firstIndex(where: { $0.id == target }) { layout.layers.insert(layer, at: destination + (before ? 0 : 1)); board.directions[directionIndex].importedLayout = layout; selectedSection = source; save("Reorder Layers") }; return
         }
         board.directions[directionIndex].reorder(source, target: target, before: before, visible: plan.sections.map(\.id)); selectedSection = source; save("Reorder Sections")
+    }
+    func selectRole(_ item: TypeRole) {
+        role = item; fontSearch = ""; inspectorTab = "Typography"
+        if let element = CanvasPlan(direction: direction).elements.first(where: { $0.role == item && $0.text != nil }) { selectedSection = element.sectionID; selectedTextID = element.textID }
+        else { selectedSection = nil; selectedTextID = nil }
+    }
+    func addRole(_ item: TypeRole, target: String?, before: Bool) {
+        if direction.canvas == .imported {
+            let layer = ImportedLayer(name: item.rawValue, x: 24, y: 24, width: max(1, direction.width - 48), height: item.size * 2, color: direction.ink, style: direction.style(item))
+            board.directions[directionIndex].importedLayout?.layers.append(layer); selectedSection = layer.id; selectedTextID = nil; save("Add Text Layer"); return
+        }
+        let current = CanvasPlan(direction: direction).sections.map(\.id)
+        let id = board.directions[directionIndex].insert(item, target: target, before: before, visible: current)
+        selectedSection = id; selectedTextID = nil; role = item; inspectorTab = "Typography"; save("Add \(item.rawValue)")
     }
     func moveLayer(_ id: String, _ dx: Double, _ dy: Double) {
         guard let index = direction.importedLayout?.layers.firstIndex(where: { $0.id == id }) else { return }
@@ -321,8 +372,13 @@ struct TypeBoardEditor: View {
         let zoom = scale
         let plan = CanvasPlan(direction: direction)
         return VStack(alignment: .leading, spacing: 10) {
-            Button { board.selectedDirection = direction.id; save() } label: { HStack { Text(board.canvasName(direction)); if direction.id == self.direction.id { Text("Editing").foregroundStyle(Color.accentColor) } else { Text("Click to edit").foregroundStyle(.secondary) } } }.font(.caption).buttonStyle(.plain)
-            CanvasPreview(plan: plan, zoom: zoom, directionID: direction.id == self.direction.id ? direction.id : nil, selectedSection: direction.id == self.direction.id ? selectedSection : nil, onSelect: { id in selectedSection = id; selectedTextID = nil }, onMove: moveSection, onTranslate: direction.canvas == .imported ? moveLayer : nil, onTextSelect: { element in selectedSection = element.sectionID; selectedTextID = element.textID; if let item = element.role { role = item }; inspectorTab = "Typography" })
+            HStack {
+                Button { selectCanvas(direction.id) } label: { HStack { Text(board.canvasName(direction)); if direction.id == self.direction.id { Text("Editing").foregroundStyle(Color.accentColor) } else { Text("Click to edit").foregroundStyle(.secondary) } }.contentShape(Rectangle()) }.font(.caption).buttonStyle(.plain)
+                Spacer()
+                if direction.id != self.direction.id { Button { hideCanvas(direction.id) } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.borderless).foregroundStyle(.secondary).help("Hide " + board.canvasName(direction)).accessibilityLabel("Hide " + board.canvasName(direction)) }
+                else if visibleDirections.count > 1 { Button("Only this") { showOnlyCurrent() }.buttonStyle(.borderless).font(.caption).help("Hide the other canvases") }
+            }
+            CanvasPreview(plan: plan, zoom: zoom, directionID: direction.id == self.direction.id ? direction.id : nil, selectedSection: direction.id == self.direction.id ? selectedSection : nil, onSelect: { id in selectedSection = id; selectedTextID = nil }, onMove: moveSection, onAddRole: direction.id == self.direction.id ? addRole : nil, onTranslate: direction.canvas == .imported ? moveLayer : nil, onTextSelect: { element in selectedSection = element.sectionID; selectedTextID = element.textID; if let item = element.role { role = item }; inspectorTab = "Typography" })
                 .frame(width: plan.size.width * zoom, height: plan.size.height * zoom).shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         }
     }
@@ -341,11 +397,13 @@ struct TypeBoardEditor: View {
                 Text("TYPE ROLES").font(.caption).foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
                 ForEach(TypeRole.allCases) { item in
-                    Button { role = item; selectedTextID = nil; selectedSection = nil; fontSearch = "" } label: {
-                        HStack { Text(item.rawValue).font(.caption).fontWeight(.medium); Spacer(); Text("\(Int(direction.style(item).size))").font(.caption).monospacedDigit().foregroundStyle(.secondary) }.padding(9).background(role == item ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 7)).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+                    let count = CanvasPlan(direction: direction).elements.filter { $0.role == item && $0.text != nil }.count
+                    Button { selectRole(item) } label: {
+                        HStack { Text(item.rawValue).font(.caption).fontWeight(.medium); Spacer(); Text(count == 0 ? "Add" : "\(count)× · \(Int(direction.style(item).size))").font(.caption).monospacedDigit().foregroundStyle(.secondary) }.padding(9).background(role == item ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 7)).contentShape(Rectangle())
+                    }.buttonStyle(.plain).onDrag { NSItemProvider(object: (direction.id.uuidString + "|role|" + item.rawValue) as NSString) }.help(count == 0 ? "Drag onto the canvas to add this role" : "Click to locate this role; drag to add another")
                 }
                 }
+                Text("Click a role to select its first use on the canvas. Drag any role onto the canvas to add its saved sample text.").font(.caption2).foregroundStyle(.secondary)
                 }
                 Divider()
                 Text(editingTitle).font(.headline)
@@ -420,8 +478,7 @@ struct TypeBoardEditor: View {
     var layoutSections: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text("ARRANGEMENT").font(.caption).foregroundStyle(.secondary); Spacer(); Menu { ForEach(TypeRole.allCases) { item in Button(item.rawValue) {
-                if direction.canvas == .imported { let layer = ImportedLayer(name: item.rawValue, x: 24, y: 24, width: max(1, direction.width - 48), height: item.size * 2, color: direction.ink, style: direction.style(item)); board.directions[directionIndex].importedLayout?.layers.append(layer); selectedSection = layer.id }
-                else { board.directions[directionIndex].addedBlocks = (direction.addedBlocks ?? []) + [LayoutBlock(role: item)] }; save("Add Section")
+                addRole(item, target: CanvasPlan(direction: direction).sections.last?.id, before: false)
             } }; if !(direction.hiddenSections ?? []).isEmpty { Button("Restore removed sections") { board.directions[directionIndex].hiddenSections = nil; save() } } } label: { Image(systemName: "plus") }.shelfIconMenu().help("Add section").accessibilityLabel("Add section") }
             let plan = CanvasPlan(direction: direction)
             GeometryReader { geometry in
@@ -438,6 +495,28 @@ struct TypeBoardEditor: View {
         }
     }
     func chooseFont(_ name: String) { var s = style; s.fontName = name; s.axes = library.pro.axes[name] ?? [:]; s.features = library.pro.features[name] ?? [:]; setStyle(s); save("Change Font") }
+    var fontSummaryPopover: some View {
+        let summary = fontSummary
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack { VStack(alignment: .leading, spacing: 3) { Text("Fonts used").font(.headline); Text(board.canvasName(direction) + " · " + direction.canvas.rawValue).font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("Done") { showFontSummary = false }.keyboardShortcut(.cancelAction) }
+            Picker("Detail", selection: $fontSummaryDetail) { ForEach(TypographySummaryDetail.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).labelsHidden()
+            ScrollView { Text(summary.text(fontSummaryDetail)).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(12) }.background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8)).frame(minHeight: 180, maxHeight: 320)
+            HStack {
+                Button("Copy") { let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(summary.text(fontSummaryDetail), forType: .string); status = "Typography summary copied" }
+                Spacer()
+                Menu("Export") { Button("Plain text…") { exportFontSummary(markdown: false) }; Button("Markdown…") { exportFontSummary(markdown: true) } }.fixedSize()
+            }
+            Text("Only text styles visible on this canvas are included. Full settings adds size, line height, tracking, variable axes and OpenType features.").font(.caption).foregroundStyle(.secondary)
+        }.padding(18).frame(width: 470)
+    }
+    func exportFontSummary(markdown: Bool) {
+        let panel = NSSavePanel(), suffix = markdown ? "md" : "txt"
+        panel.allowedContentTypes = [UTType(filenameExtension: suffix) ?? .plainText]
+        panel.nameFieldStringValue = board.name + " — " + board.canvasName(direction) + " typography." + suffix
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try fontSummary.text(fontSummaryDetail, markdown: markdown).write(to: url, atomically: true, encoding: .utf8); status = "Typography summary exported" }
+        catch { status = "Typography summary export failed: " + error.localizedDescription }
+    }
     func numeric(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, unit: String) -> some View {
         VStack(alignment: .leading, spacing: 4) { HStack { Text(title); Spacer(); TextField(title, value: Binding(get: { value.wrappedValue }, set: { if $0.isFinite { value.wrappedValue = min(range.upperBound, max(range.lowerBound, $0)) } }), format: .number.precision(.fractionLength(0...2))).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width: 65).onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }; Text(unit).foregroundStyle(.secondary) }.font(.caption); Slider(value: value, in: range) }
     }
@@ -561,59 +640,116 @@ struct CanvasPlan {
             return height
         }
         func rule() { elements.append(CanvasElement(rect: CGRect(x: margin, y: y, width: usable, height: 1), color: ink.withAlphaComponent(0.18))); y += 26 }
-        func button() { let start = y; let h = text(.label, x: margin + 18, at: start + 13, width: usable - 36); elements.insert(CanvasElement(rect: CGRect(x: margin, y: start, width: usable, height: h + 26), color: accent, radius: 7), at: elements.count - 1); y = start + h + 50 }
+        func button(_ label: String? = nil, x: Double? = nil, width: Double? = nil) { let bx = x ?? margin, bw = width ?? usable, start = y; let h = text(.label, label, x: bx + 18, at: start + 13, width: bw - 36); elements.insert(CanvasElement(rect: CGRect(x: bx, y: start, width: bw, height: h + 26), color: accent, radius: 7), at: elements.count - 1); y = start + h + 50 }
         switch d.canvas {
         case .imported: break
         case .custom:
             for (index, role) in (d.blocks ?? TypeRole.allCases).enumerated() { section("block-\(index)", role.rawValue); _ = text(role) }
         case .website:
-            section("masthead", "Masthead")
-            _ = text(.caption); rule(); y += 30
-            section("hero", "Hero")
-            _ = text(.display); _ = text(.body); button(); rule()
-            section("cards", "Content cards")
-            let cards = w >= 768 ? 3 : 1, gap = 24.0, cw = (usable - Double(cards - 1) * gap) / Double(cards)
-            let top = y
+            section("navigation", "Website navigation")
+            let navY = y
+            let logoH = text(.label, "STUDIO / 01", x: margin, at: navY, width: usable * 0.35)
+            let navH = text(.caption, "WORK   ABOUT   JOURNAL   CONTACT", x: margin + usable * 0.48, at: navY, width: usable * 0.52)
+            y = navY + max(logoH, navH) + 22; rule()
+            section("hero", "Split hero")
+            if w >= 700 {
+                let top = y, copyWidth = usable * 0.49, imageX = margin + usable * 0.57, imageWidth = usable * 0.43
+                let displayH = text(.display, x: margin, at: top, width: copyWidth)
+                let bodyH = text(.body, x: margin, at: top + displayH + 22, width: copyWidth * 0.88)
+                y = top + displayH + bodyH + 48; button("Explore the collection", x: margin, width: min(230, copyWidth))
+                let imageHeight = max(300, y - top + 54)
+                elements.insert(CanvasElement(rect: CGRect(x: imageX, y: top, width: imageWidth, height: imageHeight), color: accent.withAlphaComponent(0.2), radius: 3), at: elementStart)
+                elements.append(CanvasElement(rect: CGRect(x: imageX + imageWidth * 0.55, y: top + imageHeight * 0.12, width: imageWidth * 0.28, height: imageHeight * 0.65), color: accent.withAlphaComponent(0.38), radius: imageWidth * 0.14))
+                y = max(y, top + imageHeight + 34)
+            } else {
+                _ = text(.display); _ = text(.body); button("Explore the collection", width: min(240, usable)); elements.append(CanvasElement(rect: CGRect(x: margin, y: y, width: usable, height: 220), color: accent.withAlphaComponent(0.2), radius: 3)); y += 250
+            }
+            section("proof", "Trust strip")
+            let proofY = y, proofWidth = usable / 3
+            for (i, value) in ["EST. 2018", "INDEPENDENT", "WORLDWIDE"].enumerated() { _ = text(.caption, value, x: margin + Double(i) * proofWidth, at: proofY, width: proofWidth) }
+            y = proofY + 38; rule()
+            section("features", "Feature stories")
+            let cards = w >= 768 ? 3 : 1, gap = 24.0, cw = (usable - Double(cards - 1) * gap) / Double(cards), top = y
             var bottom = y
             for i in 0..<cards {
-                let x = margin + Double(i) * (cw + gap)
-                elements.append(CanvasElement(rect: CGRect(x: x, y: top, width: cw, height: cw * 0.52), color: accent.withAlphaComponent(0.16), radius: 4))
-                let h = text(.subheading, x: x, at: top + cw * 0.52 + 16, width: cw)
-                let b = text(.body, x: x, at: top + cw * 0.52 + h + 28, width: cw)
-                bottom = max(bottom, top + cw * 0.52 + h + b + 44)
+                let x = margin + Double(i) * (cw + gap), imageHeight = cw * (i == 1 ? 0.9 : 0.62)
+                elements.append(CanvasElement(rect: CGRect(x: x, y: top, width: cw, height: imageHeight), color: accent.withAlphaComponent(0.11 + Double(i) * 0.055), radius: 4))
+                let h = text(.subheading, ["Objects with purpose", "A slower process", "Inside the studio"][i], x: x, at: top + imageHeight + 16, width: cw)
+                let b = text(.body, x: x, at: top + imageHeight + h + 26, width: cw)
+                bottom = max(bottom, top + imageHeight + h + b + 42)
             }
-            y = bottom; rule(); section("footer", "Footer"); _ = text(.caption, "ABOUT     JOURNAL     CONTACT")
+            y = bottom; rule(); section("footer", "Website footer"); _ = text(.heading, "Stay curious."); _ = text(.caption, "NEWSLETTER     INSTAGRAM     TERMS     © 2026")
         case .product:
-            section("navigation", "Navigation"); _ = text(.caption, "WORKSPACE / OVERVIEW"); rule(); section("intro", "Introduction"); _ = text(.heading); _ = text(.body)
-            section("stats", "Statistics")
-            let columns = w >= 768 ? 3 : 1, gap = 16.0, cw = (usable - Double(columns - 1) * gap) / Double(columns)
+            section("app-bar", "Application chrome")
+            let barY = y
+            elements.append(CanvasElement(rect: CGRect(x: margin, y: barY, width: usable, height: 62), color: ink.withAlphaComponent(0.055), radius: 10))
+            _ = text(.label, "ACME WORKSPACE", x: margin + 18, at: barY + 19, width: usable * 0.35)
+            _ = text(.caption, "⌘ K  SEARCH        ARIAN ▾", x: margin + usable * 0.58, at: barY + 20, width: usable * 0.38)
+            y = barY + 86
+            section("dashboard", "Dashboard header")
+            _ = text(.caption, "OVERVIEW / THIS WEEK"); _ = text(.heading, "Good morning, Arian"); _ = text(.body, "Track active projects, decisions, and the work that needs your attention.")
+            section("metrics", "Metric cards")
+            let columns = w >= 700 ? 3 : 1, gap = 14.0, cw = (usable - Double(columns - 1) * gap) / Double(columns)
             for start in stride(from: 0, to: 3, by: columns) {
-                let rowY = y
-                var bottom = y
+                let rowY = y; var bottom = y
                 for i in start..<min(start + columns, 3) {
                     let x = margin + Double(i - start) * (cw + gap), insertion = elements.count
-                    let captionHeight = text(.caption, ["PROJECTS", "IN REVIEW", "COMPLETED"][i], x: x + 16, at: rowY + 14, width: cw - 32)
-                    let numberHeight = text(.subheading, ["24", "08", "16"][i], x: x + 16, at: rowY + captionHeight + 26, width: cw - 32)
-                    let height = captionHeight + numberHeight + 42
-                    elements.insert(CanvasElement(rect: CGRect(x: x, y: rowY, width: cw, height: height), color: accent.withAlphaComponent(0.12), radius: 8), at: insertion)
+                    let captionH = text(.caption, ["ACTIVE PROJECTS", "AWAITING REVIEW", "ON-TIME RATE"][i], x: x + 18, at: rowY + 16, width: cw - 36)
+                    let numberH = text(.heading, ["24", "08", "96%" ][i], x: x + 18, at: rowY + captionH + 26, width: cw - 36)
+                    let height = captionH + numberH + 48
+                    elements.insert(CanvasElement(rect: CGRect(x: x, y: rowY, width: cw, height: height), color: accent.withAlphaComponent(i == 1 ? 0.2 : 0.09), radius: 10), at: insertion)
                     bottom = max(bottom, rowY + height)
                 }
-                y = bottom + 24
+                y = bottom + 18
             }
-            section("activity-heading", "Activity heading"); _ = text(.subheading, "Recent activity"); rule()
-            for (i, item) in ["Website exploration", "Mobile interface", "Brand guidelines"].enumerated() { section("activity-\(i)", item); _ = text(.label, item); _ = text(.caption, "Updated today · In progress"); rule() }
-            section("action", "Action"); _ = text(.mono); button()
+            section("table", "Project table")
+            let tableY = y
+            elements.append(CanvasElement(rect: CGRect(x: margin, y: tableY, width: usable, height: 42), color: ink.withAlphaComponent(0.06), radius: 6))
+            _ = text(.caption, "PROJECT", x: margin + 16, at: tableY + 13, width: usable * 0.44)
+            _ = text(.caption, "STATUS", x: margin + usable * 0.58, at: tableY + 13, width: usable * 0.2)
+            y = tableY + 42
+            for (i, item) in ["Website exploration", "Mobile interface", "Brand guidelines", "Product launch"].enumerated() {
+                let row = y
+                _ = text(.label, item, x: margin + 16, at: row + 16, width: usable * 0.48)
+                _ = text(.caption, i == 1 ? "NEEDS REVIEW" : "IN PROGRESS", x: margin + usable * 0.58, at: row + 17, width: usable * 0.28)
+                y = row + 56; elements.append(CanvasElement(rect: CGRect(x: margin, y: y - 1, width: usable, height: 1), color: ink.withAlphaComponent(0.1)))
+            }
+            y += 22; section("command", "Command input")
+            let commandY = y; elements.append(CanvasElement(rect: CGRect(x: margin, y: commandY, width: usable, height: 58), color: accent.withAlphaComponent(0.13), radius: 9)); _ = text(.mono, "Ask your workspace…                         ⌘ ↵", x: margin + 18, at: commandY + 17, width: usable - 36); y = commandY + 82
         case .editorial:
-            section("masthead", "Masthead"); _ = text(.caption); y += 24; section("headline", "Headline"); _ = text(.display); _ = text(.subheading); rule()
-            section("article", "Article columns")
-            let columns = w >= 768 ? 2 : 1, cw = (usable - Double(columns - 1) * 32) / Double(columns), top = y
-            var bottom = y
-            for i in 0..<columns { let h = text(.body, Array(repeating: d.style(.body).text, count: 5).joined(separator: "\n\n"), x: margin + Double(i) * (cw + 32), at: top, width: cw); bottom = max(bottom, top + h) }
-            y = bottom + 32; rule(); section("footer", "Folio"); _ = text(.caption, "01 / JOURNAL")
+            section("masthead", "Magazine masthead")
+            let mastY = y; _ = text(.caption, "VOL. 12   /   CULTURE & DESIGN", x: margin, at: mastY, width: usable * 0.5); _ = text(.label, "THE FIELD NOTES", x: margin + usable * 0.62, at: mastY, width: usable * 0.38); y = mastY + 38; rule()
+            section("cover-story", "Cover story")
+            _ = text(.display, "The quiet ideas reshaping everyday life"); _ = text(.subheading, "A conversation about objects, attention, and what it means to make things that last.")
+            let bylineY = y; _ = text(.caption, "WORDS  MAYA CHEN", x: margin, at: bylineY, width: usable * 0.45); _ = text(.caption, "PHOTOGRAPHY  LUIS ORTEGA", x: margin + usable * 0.52, at: bylineY, width: usable * 0.48); y = bylineY + 42
+            section("image", "Lead image")
+            let imageHeight = w >= 700 ? usable * 0.52 : 240
+            elements.append(CanvasElement(rect: CGRect(x: margin, y: y, width: usable, height: imageHeight), color: accent.withAlphaComponent(0.22), radius: 2))
+            elements.append(CanvasElement(rect: CGRect(x: margin + usable * 0.64, y: y + imageHeight * 0.13, width: usable * 0.22, height: imageHeight * 0.7), color: ink.withAlphaComponent(0.12), radius: 2)); y += imageHeight + 18
+            _ = text(.caption, "FIG. 01 — Morning light in the workshop."); y += 18
+            section("article", "Article and pull quote")
+            if w >= 700 {
+                let articleY = y, columnGap = 28.0, bodyWidth = usable * 0.29
+                let first = text(.body, Array(repeating: d.style(.body).text, count: 4).joined(separator: "\n\n"), x: margin, at: articleY, width: bodyWidth)
+                let quote = text(.heading, "“The useful things are often the most poetic.”", x: margin + bodyWidth + columnGap, at: articleY + 28, width: usable * 0.34)
+                let second = text(.body, Array(repeating: d.style(.body).text, count: 4).joined(separator: "\n\n"), x: margin + usable - bodyWidth, at: articleY, width: bodyWidth)
+                y = articleY + max(first, quote + 28, second) + 36
+            } else { _ = text(.heading, "“The useful things are often the most poetic.”"); _ = text(.body, Array(repeating: d.style(.body).text, count: 5).joined(separator: "\n\n")) }
+            rule(); section("folio", "Editorial folio"); let folioY = y; _ = text(.caption, "THE FIELD NOTES", x: margin, at: folioY, width: usable * 0.5); _ = text(.mono, "024", x: margin + usable * 0.8, at: folioY, width: usable * 0.2); y = folioY + 38
         case .poster:
-            section("eyebrow", "Eyebrow"); _ = text(.caption); y += 60; section("display", "Display"); _ = text(.display); y += 30
-            elements.append(CanvasElement(rect: CGRect(x: margin, y: y, width: usable, height: 12), color: accent)); y += 60
-            section("details", "Details"); _ = text(.heading); _ = text(.subheading); _ = text(.body); y += 50; rule(); section("footer", "Footer"); _ = text(.label); _ = text(.mono)
+            section("poster-code", "Poster index")
+            let indexY = y; _ = text(.mono, "POSTER / 07", x: margin, at: indexY, width: usable * 0.4); _ = text(.caption, "DESIGN / MUSIC / CONVERSATION", x: margin + usable * 0.48, at: indexY, width: usable * 0.52); y = indexY + 60
+            section("poster-field", "Graphic field")
+            let fieldY = y, fieldHeight = max(300, usable * 0.62)
+            elements.append(CanvasElement(rect: CGRect(x: margin, y: fieldY, width: usable, height: fieldHeight), color: accent, radius: 0))
+            elements.append(CanvasElement(rect: CGRect(x: margin + usable * 0.54, y: fieldY + fieldHeight * 0.08, width: usable * 0.34, height: usable * 0.34), color: paper.withAlphaComponent(0.9), radius: usable * 0.17))
+            _ = text(.display, "FORM / SOUND", x: margin + 28, at: fieldY + 30, width: usable * 0.62, color: paper)
+            _ = text(.mono, "08—10\nOCT 2026", x: margin + 30, at: fieldY + fieldHeight * 0.68, width: usable * 0.34, color: paper)
+            _ = text(.label, "HALL 04 / LOS ANGELES", x: margin + usable * 0.54, at: fieldY + fieldHeight * 0.78, width: usable * 0.38, color: paper)
+            y = fieldY + fieldHeight + 42
+            section("poster-details", "Event details")
+            let detailY = y; _ = text(.heading, "Three nights of new work.", x: margin, at: detailY, width: usable * 0.55); _ = text(.body, "Exhibitions, live performance, workshops, and conversations with independent makers.", x: margin + usable * 0.62, at: detailY, width: usable * 0.38); y = detailY + 150
+            rule(); section("poster-footer", "Poster footer"); let footerY = y; _ = text(.caption, "TICKETS / PROGRAM / ACCESS", x: margin, at: footerY, width: usable * 0.58); _ = text(.mono, "F/S 2026", x: margin + usable * 0.72, at: footerY, width: usable * 0.28); y = footerY + 44
         case .specimen:
             for role in TypeRole.allCases { section(role.rawValue, role.rawValue); _ = text(.caption, role.rawValue.uppercased() + " · " + d.style(role).fontName + " · \(Int(d.style(role).size)) PX"); _ = text(role); rule() }
         }
@@ -640,6 +776,7 @@ final class CanvasNativeView: NSView {
     var selectedSection: String?
     var onSelect: ((String) -> Void)?
     var onMove: ((String, String, Bool) -> Void)?
+    var onAddRole: ((TypeRole, String?, Bool) -> Void)?
     var onTranslate: ((String, Double, Double) -> Void)?
     var onTextSelect: ((CanvasElement) -> Void)?
     private var insertionY: Double?
@@ -684,16 +821,17 @@ final class CanvasNativeView: NSView {
         if let hit = section(at: point) { return hit }
         return point.y / max(0.01, zoom) < (plan.sections.first?.rect.minY ?? 0) ? plan.sections.first : plan.sections.last
     }
-    private func source(_ sender: NSDraggingInfo) -> String? {
-        guard let directionID, let value = sender.draggingPasteboard.string(forType: .string), value.hasPrefix(directionID.uuidString + "|") else { return nil }
-        let id = String(value.dropFirst(37)); return plan.sections.contains { $0.id == id } ? id : nil
+    private func source(_ sender: NSDraggingInfo) -> CanvasDragPayload.Source? {
+        guard let directionID, let value = sender.draggingPasteboard.string(forType: .string) else { return nil }
+        return CanvasDragPayload.parse(value, directionID: directionID, sectionIDs: Set(plan.sections.map(\.id)), acceptsRoles: onAddRole != nil)
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard source(sender) != nil else { return [] }
         let point = convert(sender.draggingLocation, from: nil)
         guard let target = dropTarget(at: point) else { insertionY = nil; needsDisplay = true; return [] }
-        insertionY = point.y / zoom < target.rect.midY ? target.rect.minY : target.rect.maxY; needsDisplay = true; return .move
+        insertionY = point.y / zoom < target.rect.midY ? target.rect.minY : target.rect.maxY; needsDisplay = true
+        if case .role = source(sender) { return .copy }; return .move
     }
     override func draggingExited(_ sender: NSDraggingInfo?) { insertionY = nil; needsDisplay = true }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { source(sender) != nil }
@@ -702,7 +840,9 @@ final class CanvasNativeView: NSView {
         guard let source = source(sender) else { return false }
         let point = convert(sender.draggingLocation, from: nil)
         guard let target = dropTarget(at: point) else { return false }
-        onMove?(source, target.id, point.y / zoom < target.rect.midY); return true
+        let before = point.y / zoom < target.rect.midY
+        switch source { case .section(let id): onMove?(id, target.id, before); case .role(let role): onAddRole?(role, target.id, before) }
+        return true
     }
     override func draw(_ dirtyRect: NSRect) {
         plan.paper.setFill(); bounds.fill()
@@ -726,10 +866,11 @@ struct CanvasPreview: NSViewRepresentable {
     var selectedSection: String?
     var onSelect: ((String) -> Void)?
     var onMove: ((String, String, Bool) -> Void)?
+    var onAddRole: ((TypeRole, String?, Bool) -> Void)?
     var onTranslate: ((String, Double, Double) -> Void)?
     var onTextSelect: ((CanvasElement) -> Void)?
     func makeNSView(context: Context) -> CanvasNativeView { CanvasNativeView(plan: plan) }
-    func updateNSView(_ view: CanvasNativeView, context: Context) { view.plan = plan; view.zoom = zoom; view.directionID = directionID; view.selectedSection = selectedSection; view.onSelect = onSelect; view.onMove = onMove; view.onTranslate = onTranslate; view.onTextSelect = onTextSelect; view.frame.size = CGSize(width: plan.size.width * zoom, height: plan.size.height * zoom); view.setAccessibilityElement(true); view.setAccessibilityLabel(plan.elements.compactMap { $0.text?.string }.joined(separator: ". ")); view.needsDisplay = true }
+    func updateNSView(_ view: CanvasNativeView, context: Context) { view.plan = plan; view.zoom = zoom; view.directionID = directionID; view.selectedSection = selectedSection; view.onSelect = onSelect; view.onMove = onMove; view.onAddRole = onAddRole; view.onTranslate = onTranslate; view.onTextSelect = onTextSelect; view.frame.size = CGSize(width: plan.size.width * zoom, height: plan.size.height * zoom); view.setAccessibilityElement(true); view.setAccessibilityLabel(plan.elements.compactMap { $0.text?.string }.joined(separator: ". ")); view.needsDisplay = true }
 }
 
 extension CanvasPlan {
@@ -796,7 +937,7 @@ struct SectionDragTarget: View {
         .overlay(alignment: insertion == false ? .bottom : .top) { if insertion != nil { Rectangle().fill(Color.accentColor).frame(height: 3) } }
         .onHover { hovered = $0 }
         .onTapGesture(perform: onSelect)
-        .onDrag { let token = directionID.uuidString + "|" + id; dragging = token; return NSItemProvider(object: token as NSString) }
+        .onDrag { let token = directionID.uuidString + "|section|" + id; dragging = token; return NSItemProvider(object: token as NSString) }
         .onDrop(of: [UTType.plainText], delegate: SectionDropDelegate(target: id, directionID: directionID, height: height, dragging: $dragging, insertion: $insertion, onMove: onMove))
         .accessibilityLabel("Reorder " + title).help("Drag above or below another section")
     }
@@ -816,8 +957,8 @@ struct SectionDropDelegate: DropDelegate {
         let before = info.location.y < height / 2
         insertion = nil; dragging = nil
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let value = object as? String, value.hasPrefix(directionID.uuidString + "|") else { return }
-            DispatchQueue.main.async { onMove(String(value.dropFirst(37)), target, before) }
+            guard let value = object as? String, value.hasPrefix(directionID.uuidString + "|section|") else { return }
+            DispatchQueue.main.async { onMove(String(value.dropFirst(45)), target, before) }
         }
         return true
     }

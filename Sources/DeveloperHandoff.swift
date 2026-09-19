@@ -234,3 +234,83 @@ enum DeveloperHandoff {
         } catch { try? fm.removeItem(at: staging); throw error }
     }
 }
+
+enum TypographySummaryDetail: String, CaseIterable, Identifiable {
+    case fonts = "Font names", roles = "Fonts + roles", full = "Full settings"
+    var id: String { rawValue }
+}
+
+struct CanvasTypographySummary {
+    struct Entry: Hashable {
+        let role: String
+        let font: String
+        let size: Double
+        let lineHeight: Double
+        let tracking: Double
+        let axes: String
+        let features: String
+    }
+    let canvas: String
+    let format: String
+    let entries: [Entry]
+    var fonts: [String] { Set(entries.map(\.font)).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
+    private static func markdownText(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "*", with: "\\*")
+            .replacingOccurrences(of: "_", with: "\\_")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+    private static func inlineCode(_ value: String) -> String {
+        let runs = value.split(separator: "`", omittingEmptySubsequences: false)
+        let longest = value.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
+        let fence = String(repeating: "`", count: max(1, longest + (runs.count > 1 ? 1 : 0)))
+        let padding = value.hasPrefix("`") || value.hasSuffix("`") || value.hasPrefix(" ") || value.hasSuffix(" ") ? " " : ""
+        return fence + padding + value.replacingOccurrences(of: "\n", with: " ") + padding + fence
+    }
+    init(canvas: String, direction: TypeDirection) {
+        self.canvas = canvas; format = direction.canvas.rawValue
+        let plan = CanvasPlan(direction: direction)
+        var values: [Entry] = []
+        for element in plan.elements {
+            guard let style = element.style, element.text != nil else { continue }
+            let section = plan.sections.first { $0.id == element.sectionID }?.title
+            let role = element.role?.rawValue ?? section ?? "Text layer"
+            let axes = DeveloperHandoff.axes(style).keys.sorted().map { "\($0) \(DeveloperHandoff.number(DeveloperHandoff.axes(style)[$0]!))" }.joined(separator: ", ")
+            let features = DeveloperHandoff.features(style).keys.sorted().map { "\($0) \(DeveloperHandoff.features(style)[$0]!)" }.joined(separator: ", ")
+            let entry = Entry(role: role, font: style.fontName, size: style.size, lineHeight: style.lineHeight ?? style.size * style.leading, tracking: style.tracking, axes: axes, features: features)
+            if !values.contains(entry) { values.append(entry) }
+        }
+        entries = values
+    }
+    func text(_ detail: TypographySummaryDetail, markdown: Bool = false) -> String {
+        let title = "\(canvas) · \(format)"
+        if markdown {
+            var lines = ["# " + Self.markdownText(title), ""]
+            if detail == .fonts { lines += fonts.map { "- " + Self.inlineCode($0) } }
+            else { lines += entries.map { entry in
+                var value = "- **\(Self.markdownText(entry.role))** — " + Self.inlineCode(entry.font)
+                if detail == .full {
+                    value += " — \(DeveloperHandoff.number(entry.size)) px / \(DeveloperHandoff.number(entry.lineHeight)) px line height / \(DeveloperHandoff.number(entry.tracking)) px tracking"
+                    if !entry.axes.isEmpty { value += " — axes: \(entry.axes)" }
+                    if !entry.features.isEmpty { value += " — features: \(entry.features)" }
+                }
+                return value
+            } }
+            return lines.joined(separator: "\n") + "\n"
+        }
+        var lines = [title, String(repeating: "=", count: max(8, title.count)), ""]
+        if detail == .fonts { lines += fonts }
+        else { lines += entries.map { entry in
+            var value = "\(entry.role): \(entry.font)"
+            if detail == .full {
+                value += " | \(DeveloperHandoff.number(entry.size)) px | line \(DeveloperHandoff.number(entry.lineHeight)) px | tracking \(DeveloperHandoff.number(entry.tracking)) px"
+                if !entry.axes.isEmpty { value += " | axes \(entry.axes)" }
+                if !entry.features.isEmpty { value += " | features \(entry.features)" }
+            }
+            return value
+        } }
+        return lines.joined(separator: "\n") + "\n"
+    }
+}

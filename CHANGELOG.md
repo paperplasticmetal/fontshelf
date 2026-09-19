@@ -4,6 +4,7 @@
 
 - Replaced implicit canvas comparison state with an explicit visible-canvas set. Selecting canvases builds a stable comparison; per-canvas Hide, Only this, Show all and the checkmarked Shown menu make returning to a single canvas immediate.
 - Added a Fonts used summary for the active canvas with font-only, role mapping and full typography levels, plus clipboard, plain-text and Markdown handoff.
+- Added collection creation from the fonts used on one canvas, across a typeboard, or throughout a project. Used styles deduplicate to Library font families and never overwrite an existing collection.
 - Linked type-role selection to its first visible canvas use and made roles draggable onto the active canvas with their saved sample text and typography settings.
 - Redesigned website, product UI, editorial and poster canvases as distinct, purpose-specific compositions while retaining rearrangeable sections and responsive widths.
 - Added regression coverage for canvas visibility continuity, role-drop placement and payload validation, typography summary exports and template distinctness.

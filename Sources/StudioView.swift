@@ -33,6 +33,7 @@ struct StudioView: View {
                     Menu {
                         Button("Rename space…") { renameSpace(space) }
                         Button("Import Figma typeboard…") { importFigma() }
+                        Button("Create font collection…") { createCollection(from: space) }.disabled(space.boards.isEmpty)
                         Button("Developer handoff…") { exportHandoff(space) }.disabled(space.boards.isEmpty)
                         Button("Export space…") { exportSpace(space) }
                         Button("Import space…") { importSpace() }
@@ -42,7 +43,7 @@ struct StudioView: View {
                 }.padding(.horizontal, 18).padding(.vertical, 14).fixedSize(horizontal: false, vertical: true)
                 Divider()
                 if let board {
-                    TypeBoardEditor(library: library, savedBoard: board, onSave: { store.update(space: space.id, board: $0, action: $1) }, onDelete: {
+                    TypeBoardEditor(library: library, savedBoard: board, projectName: space.displayName, projectBoards: space.boards, onSave: { store.update(space: space.id, board: $0, action: $1) }, onDelete: {
                         store.removeBoard(space: space.id, id: board.id); boardID = store.focusedBoard
                     }).id(board.id)
                 } else {
@@ -109,6 +110,20 @@ struct StudioView: View {
     func exportHandoff(_ space: DesignSpace) {
         do { if let folder = try DeveloperHandoff.selectFolder(title: space.displayName, boards: space.boards, catalog: library.families) { store.error = ""; NSWorkspace.shared.activateFileViewerSelecting([folder]) } }
         catch { store.error = "Handoff export failed: " + error.localizedDescription }
+    }
+    func createCollection(from space: DesignSpace) {
+        let fontNames = StudioFontCollection.fontNames(in: space.boards)
+        let families = library.familyNames(forPostScriptNames: fontNames)
+        let unavailable = fontNames.subtracting(Set(library.allFaces.map(\.name))).count
+        guard !families.isEmpty else { library.message = "This project does not use any fonts currently available in the Library."; return }
+        guard let name = ShelfCollectionPrompt.prompt(suggestedName: space.displayName + " fonts", source: "the “" + space.displayName + "” project", count: families.count, unavailable: unavailable, validate: { library.saved.collections[$0] == nil ? nil : "A collection with this name already exists." }) else { return }
+        switch library.createCollection(name, postScriptNames: fontNames) {
+        case .created(let created, let count): library.message = "Created “\(created)” with \(count) font \(count == 1 ? "family" : "families"). It is ready in Library and in typeboard font filters."
+        case .duplicateName: library.message = "A collection with that name already exists."
+        case .noAvailableFonts: library.message = "None of the project's fonts are currently available in the Library."
+        case .invalidName: library.message = "Enter a collection name."
+        case .saveFailed: break
+        }
     }
     func exportSpace(_ space: DesignSpace) {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "\(space.name).fontshelf.json"
@@ -197,10 +212,12 @@ struct TypeBoardEditor: View {
     @ObservedObject var library: Library
     @State var board: TypeBoard
     let savedBoard: TypeBoard
+    let projectName: String
+    let projectBoards: [TypeBoard]
     let onSave: (TypeBoard, String) -> Void
     let onDelete: () -> Void
-    init(library: Library, savedBoard: TypeBoard, onSave: @escaping (TypeBoard, String) -> Void, onDelete: @escaping () -> Void) {
-        self.library = library; self.savedBoard = savedBoard; self.onSave = onSave; self.onDelete = onDelete
+    init(library: Library, savedBoard: TypeBoard, projectName: String, projectBoards: [TypeBoard], onSave: @escaping (TypeBoard, String) -> Void, onDelete: @escaping () -> Void) {
+        self.library = library; self.savedBoard = savedBoard; self.projectName = projectName; self.projectBoards = projectBoards; self.onSave = onSave; self.onDelete = onDelete
         _board = State(initialValue: savedBoard)
         _shownCanvasIDs = State(initialValue: Set([savedBoard.selectedDirection ?? savedBoard.directions.first?.id].compactMap { $0 }))
     }
@@ -269,6 +286,11 @@ struct TypeBoardEditor: View {
                         ForEach((board.checkpoints ?? []).reversed()) { checkpoint in Button(checkpoint.direction.name + " · " + checkpoint.date.formatted(date: .abbreviated, time: .shortened)) { let copy = checkpoint.direction.copy(name: checkpoint.direction.name + " restored"); board.directions.append(copy); board.selectedDirection = copy.id; save() } }
                     }.disabled((board.checkpoints ?? []).isEmpty)
                     Button("Add shortlist as candidates") { board.candidates = Array(Set(board.candidates + library.compared.map { library.chosenFace($0).name })).sorted(); save() }
+                    Menu("Create font collection") {
+                        Button("From this canvas…") { createCollection(.canvas) }
+                        Button("From this typeboard…") { createCollection(.typeboard) }
+                        Button("From this project…") { createCollection(.project) }
+                    }
                     Divider()
                     Button("Delete canvas", role: .destructive) { let id = direction.id; board.directions.removeAll { $0.id == id }; shownCanvasIDs.remove(id); board.selectedDirection = board.directions.first?.id; if let selected = board.selectedDirection { shownCanvasIDs.insert(selected) }; abID = nil; save("Delete Canvas") }.disabled(board.directions.count < 2)
                     Button("Delete typeboard…", role: .destructive) { showDelete = true }
@@ -504,10 +526,35 @@ struct TypeBoardEditor: View {
             HStack {
                 Button("Copy") { let pasteboard = NSPasteboard.general; pasteboard.clearContents(); pasteboard.setString(summary.text(fontSummaryDetail), forType: .string); status = "Typography summary copied" }
                 Spacer()
+                Menu { Button("From this canvas…") { createCollection(.canvas) }; Button("From this typeboard…") { createCollection(.typeboard) }; Button("From this project…") { createCollection(.project) } } label: { Label("Collection", systemImage: "folder.badge.plus") }.fixedSize()
                 Menu("Export") { Button("Plain text…") { exportFontSummary(markdown: false) }; Button("Markdown…") { exportFontSummary(markdown: true) } }.fixedSize()
             }
             Text("Only text styles visible on this canvas are included. Full settings adds size, line height, tracking, variable axes and OpenType features.").font(.caption).foregroundStyle(.secondary)
-        }.padding(18).frame(width: 470)
+        }.padding(18).frame(width: 540)
+    }
+    enum CollectionScope { case canvas, typeboard, project }
+    func createCollection(_ scope: CollectionScope) {
+        let names: Set<String>, source: String, suggested: String
+        switch scope {
+        case .canvas:
+            names = StudioFontCollection.fontNames(in: direction); source = "“" + board.canvasName(direction) + "”"; suggested = board.name + " — " + board.canvasName(direction)
+        case .typeboard:
+            names = StudioFontCollection.fontNames(in: board); source = "the “" + board.name + "” typeboard"; suggested = board.name + " fonts"
+        case .project:
+            let currentBoards = projectBoards.map { $0.id == board.id ? board : $0 }
+            names = StudioFontCollection.fontNames(in: currentBoards); source = "the “" + projectName + "” project"; suggested = projectName + " fonts"
+        }
+        let families = library.familyNames(forPostScriptNames: names)
+        let unavailable = names.subtracting(Set(library.allFaces.map(\.name))).count
+        guard !families.isEmpty else { status = "No fonts in this scope are currently available in the Library"; return }
+        guard let name = ShelfCollectionPrompt.prompt(suggestedName: suggested, source: source, count: families.count, unavailable: unavailable, validate: { library.saved.collections[$0] == nil ? nil : "A collection with this name already exists." }) else { return }
+        switch library.createCollection(name, postScriptNames: names) {
+        case .created(let created, let count): status = "Created “\(created)” with \(count) font \(count == 1 ? "family" : "families"); available in Library and font filters"
+        case .duplicateName: status = "A collection with that name already exists"
+        case .noAvailableFonts: status = "No fonts in this scope are currently available in the Library"
+        case .invalidName: status = "Enter a collection name"
+        case .saveFailed: status = library.message
+        }
     }
     func exportFontSummary(markdown: Bool) {
         let panel = NSSavePanel(), suffix = markdown ? "md" : "txt"

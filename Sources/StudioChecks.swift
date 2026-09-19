@@ -120,6 +120,10 @@ enum StudioChecks {
         let summary = CanvasTypographySummary(canvas: "Canvas 1", direction: summaryDirection)
         try verify(summary.fonts.contains("Georgia") && summary.fonts.contains("Courier") && summary.text(.roles).contains("Body: Courier"), "Canvas font summary must report fonts actually used by role")
         try verify(summary.text(.full).contains("tracking 1.5 px") && summary.text(.fonts, markdown: true).contains("`Courier`"), "Typography summary detail levels")
+        var scopedBoard = TypeBoard(); scopedBoard.directions = [summaryDirection, TypeDirection()]
+        try verify(StudioFontCollection.fontNames(in: summaryDirection) == Set(summary.fonts), "Canvas collection font scope")
+        try verify(StudioFontCollection.fontNames(in: scopedBoard).isSuperset(of: ["Courier", "Georgia", "Helvetica"]), "Typeboard collection font scope")
+        try verify(StudioFontCollection.fontNames(in: [scopedBoard, board]) == StudioFontCollection.fontNames(in: scopedBoard).union(StudioFontCollection.fontNames(in: board)), "Project collection font scope")
         var markdownDirection = TypeDirection(); markdownDirection.name = "A *test*"; markdownDirection.styles[TypeRole.body.rawValue]!.fontName = "Font`Name"
         let markdownSummary = CanvasTypographySummary(canvas: markdownDirection.name, direction: markdownDirection).text(.fonts, markdown: true)
         try verify(markdownSummary.contains("A \\*test\\*") && markdownSummary.contains("``Font`Name``"), "Typography Markdown must escape designer text safely")
@@ -129,6 +133,11 @@ enum StudioChecks {
         filterLibrary.saved.collections["Studio shortlist"] = [filterSample.name]
         filterLibrary.saved.overrides[filterSample.name] = .script
         filterLibrary.saved.favorites = [filterSample.name]
+        let usedFaceNames = Set(filterSample.faces.map(\.name))
+        try verify(filterLibrary.createCollection("Canvas fonts", postScriptNames: usedFaceNames) == .created(name: "Canvas fonts", count: 1), "Create a collection from used font faces")
+        try verify(filterLibrary.saved.collections["Canvas fonts"] == [filterSample.name], "Used styles must deduplicate to their font family")
+        try verify(filterLibrary.createCollection("Canvas fonts", postScriptNames: usedFaceNames) == .duplicateName, "Generated collections must not overwrite an existing collection")
+        try verify(filterLibrary.createCollection("Missing fonts", postScriptNames: ["FontShelfMissingFace"]) == .noAvailableFonts, "Unavailable faces cannot create an empty collection")
         let scoped = StudioFontFilter.faces(library: filterLibrary, collection: "collection:Studio shortlist", category: "Script", search: "")
         try verify(Set(scoped.map(\.name)) == Set(filterSample.faces.map(\.name)), "Font chooser must honor collection and user category override")
         try verify(StudioFontFilter.faces(library: filterLibrary, collection: "collection:Studio shortlist", category: "Serif", search: "").isEmpty, "Chooser filters intersect")

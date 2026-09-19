@@ -14,7 +14,7 @@ Current source: **0.19.0, build 27**. Updated 2026-09-19.
 | 0.16 interaction checks | Native canvas/sidebar dragging, Quick A/B, typeboard sidebar deletion/Undo, numeric Undo/Redo, saved divider width, opaque font chooser and header/toolbar spacing verified; see INTERACTION_AUDIT.md |
 | 0.17 interaction checks | Canvas tabs/show-all, exact clicked-text editing/Undo, existing collection filtering, persistent unselected-board delete confirmation, live-folders shortcut, 200% zoom and return-to-Fit verified. Physical pinch/Command-scroll gestures still need hands-on verification. |
 | 0.18 interaction checks | Developer handoff package contents/type-checking and inline project/typeboard/collection renaming verified. |
-| 0.19 interaction checks | Stable multi-canvas visibility, one-action solo/hide, font-summary detail levels and role-to-canvas selection verified. Role-drop model and payloads are regression-tested; the physical drag gesture still needs hands-on verification. |
+| 0.19 interaction checks | Stable multi-canvas visibility, one-action solo/hide, font-summary detail levels and role-to-canvas selection verified. Canvas/typeboard/project collection scopes, family deduplication and no-overwrite behavior are regression-tested. Role-drop model and payloads are regression-tested; the physical drag gesture still needs hands-on verification. |
 | Figma bridge | Mocked API suite passed; live outbound editable frames and reverse selected-frame JSON import verified, including editing, movement/Undo and relaunch persistence |
 | Unsigned archive and asset catalog, 0.12.3 | Passed; archive not checked into source |
 | Sandbox/hardened-runtime clean launch and installed-font export, 0.12.3 | Passed |

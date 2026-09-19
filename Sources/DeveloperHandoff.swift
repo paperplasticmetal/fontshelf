@@ -314,3 +314,15 @@ struct CanvasTypographySummary {
         return lines.joined(separator: "\n") + "\n"
     }
 }
+
+enum StudioFontCollection {
+    static func fontNames(in direction: TypeDirection) -> Set<String> {
+        Set(CanvasTypographySummary(canvas: direction.name, direction: direction).fonts)
+    }
+    static func fontNames(in board: TypeBoard) -> Set<String> {
+        board.directions.reduce(into: Set<String>()) { $0.formUnion(fontNames(in: $1)) }
+    }
+    static func fontNames(in boards: [TypeBoard]) -> Set<String> {
+        boards.reduce(into: Set<String>()) { $0.formUnion(fontNames(in: $1)) }
+    }
+}

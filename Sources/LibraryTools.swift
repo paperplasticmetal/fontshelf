@@ -57,7 +57,43 @@ enum ShelfRename {
     }
 }
 
+enum CollectionCreationResult: Equatable {
+    case created(name: String, count: Int)
+    case invalidName, duplicateName, noAvailableFonts, saveFailed
+}
+
+enum ShelfCollectionPrompt {
+    static func prompt(suggestedName: String, source: String, count: Int, unavailable: Int, validate: (String) -> String?) -> String? {
+        let alert = NSAlert(); alert.messageText = "Create font collection"
+        alert.informativeText = "Save " + String(count) + " font " + (count == 1 ? "family" : "families") + " used in " + source + " as a Library collection."
+        if unavailable > 0 { alert.informativeText += " " + String(unavailable) + " unavailable font " + (unavailable == 1 ? "is" : "styles are") + " not currently in the Library and will be skipped." }
+        alert.addButton(withTitle: "Create"); alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: suggestedName); field.frame = NSRect(x: 0, y: 0, width: 340, height: 24)
+        field.setAccessibilityLabel("Collection name"); alert.accessoryView = field; alert.window.initialFirstResponder = field
+        while alert.runModal() == .alertFirstButtonReturn {
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { alert.informativeText = "Enter a collection name." }
+            else if let error = validate(name) { alert.informativeText = error }
+            else { return name }
+        }
+        return nil
+    }
+}
+
 extension Library {
+    func familyNames(forPostScriptNames names: Set<String>) -> Set<String> {
+        Set(families.filter { family in family.faces.contains { names.contains($0.name) } }.map(\.name))
+    }
+    @discardableResult func createCollection(_ proposed: String, postScriptNames: Set<String>) -> CollectionCreationResult {
+        let name = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return .invalidName }
+        guard saved.collections[name] == nil else { return .duplicateName }
+        let members = familyNames(forPostScriptNames: postScriptNames)
+        guard !members.isEmpty else { return .noAvailableFonts }
+        saved.collections[name] = members
+        guard save() else { saved.collections.removeValue(forKey: name); return .saveFailed }
+        return .created(name: name, count: members.count)
+    }
     @discardableResult func renameCollection(_ old: String, to proposed: String) -> Bool {
         let name = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let members = saved.collections[old], !name.isEmpty, name == old || saved.collections[name] == nil else { return false }

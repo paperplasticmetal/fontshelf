@@ -4,7 +4,7 @@
 
 Native macOS font browsing, previews, and organization, built with SwiftUI, AppKit, and Core Text.
 
-**Current version: 0.19.0 (build 27).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
+**Current version: 0.20.0 (build 28).** Development release for Apple Silicon. App Store submission is in preparation; this is not an App Store-approved or notarized release.
 
 **Developer handoff:** In a typeboard, choose **Export → Developer handoff…** for all its canvases, or use the space actions menu to export the whole project. One folder contains `@font-face` declarations, axes/features, CSS variables and suggested fluid `clamp()` scales, fallback stacks, preload examples, font-display guidance, Tailwind v3/v4 setup, versioned token JSON, SwiftUI and Compose starter definitions, and a standalone printable HTML specimen. Font binaries are never bundled: supply licensed web/app assets at the manifest paths. The README documents defaults and native integration work; the specimen is a typography reference, not a pixel-perfect layout export.
 
@@ -15,6 +15,8 @@ Spaces contain typeboards, and typeboards contain canvases. Selecting another ca
 Each canvas toolbar shows the number of fonts actually used. Open it for a compact font-only list, a font-and-role map, or full typography specifications with size, line height, tracking, variable axes and OpenType features; copy or export the result as plain text or Markdown. The same panel can create a Library collection from the active canvas, its complete typeboard, or the entire project, deduplicated by font family. Website, product UI, editorial and poster formats use purpose-specific compositions rather than the same generic stack.
 
 **Live folders:** Add font folder explains recursive watching in the picker, then opens the folder manager. **Live folders** is always accessible in the Library sidebar. Watching updates additions, replacements and removals while the app is open; activation for other apps remains a separate opt-in.
+
+**Font health:** Open **Tools → Font Health** to scan user fonts and watched folders, or choose **Inspect font file…** from a family's action menu. FontShelf checks SFNT structure, required tables, bounds, overlaps, checksums and common name-table failures, then separates actual warnings/errors from optional compatibility notes. Proposed fixes are individually reviewable. Export creates a new Core Text-validated copy; in-place repair is limited to writable user fonts, requires a separate confirmation, and keeps a `.fontshelf-backup` beside the original. System fonts, TTC/OTC collections, unsupported containers and ambiguous identity conflicts remain inspection-only.
 
 ## Features
 
@@ -30,6 +32,7 @@ Each canvas toolbar shows the number of fonts actually used. Open it for a compa
 - Website, product UI, editorial, poster, type-system and ordered custom-layout canvases; responsive widths, side-by-side directions, PDF export and portable space files.
 - Unicode/glyph browsing and search, metrics, outline previews, SVG export/drag, waterfall previews and paginated specimen PDFs.
 - Nested tags with AND/OR inclusion and exclusion; font metadata table and individually confirmed exact-duplicate removal to Trash.
+- Local font-health inspection with conservative name-table/checksum repairs, before/after identity summaries, repaired-copy export and backed-up in-place repair for writable user fonts.
 - Recursive watched folders refreshed every three seconds while open, with opt-in temporary activation for other apps using original files. No copying into system font folders.
 - Daily local state backups and merge-based backup import. Folder access permissions must be granted separately.
 

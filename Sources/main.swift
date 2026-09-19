@@ -129,6 +129,7 @@ final class Library: ObservableObject {
     @Published var selectedFamilies: Set<String> = []
     @Published var showTools = false
     @Published var toolsTab = "Tags"
+    @Published var repairURL: URL?
     @Published var showAdvanced = false
     var librarySaveBlocked = false
     var pendingImportFolder: String?
@@ -583,7 +584,7 @@ struct ContentView: View {
             Button { library.showAdvanced.toggle() } label: { Image(systemName: library.advanced.active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Advanced filters").popover(isPresented: $library.showAdvanced) { AdvancedFiltersView(library: library) }
             Button { showColors.toggle() } label: { Image(systemName: "paintpalette") }.buttonStyle(.plain).foregroundStyle(ShelfPalette.ink).padding(8).shelfGlass(radius: 16).help("Preview colors").popover(isPresented: $showColors) { PreviewColorsView() }
             Menu("Tools") {
-                ForEach(["Tags", "Families", "Duplicates", "Google Fonts", "Activation", "Folders"], id: \.self) { tab in Button(tab) { library.openTools(tab) } }
+                ForEach(["Tags", "Families", "Duplicates", "Font Health", "Google Fonts", "Activation", "Folders"], id: \.self) { tab in Button(tab) { library.openTools(tab) } }
                 Divider()
                 Toggle("Metadata table", isOn: $metadataView)
                 Button("Export library backup…") { LibraryBackupTools.export(library) }
@@ -647,6 +648,7 @@ struct ContentView: View {
         Button("Export font family…") { if let result = FontExporter.export(family.faces) { library.message = result } }
         Button("Edit tags…") { library.selectedFamilies = [family.name]; library.openTools("Tags") }
         Button("Edit family…") { library.selectedFamilies = [family.name]; library.openTools("Families") }
+        if let url = family.representative.url { Button("Inspect font file…") { library.repairURL = url; library.openTools("Font Health") } }
         Button("Copy family name") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(family.name, forType: .string) }
         if let url = family.representative.url { Button("Show font file in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
     }
@@ -686,6 +688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         addCommand("Spaces", "spaces", to: fileMenu)
         addCommand("New Typeboard", "pair", to: fileMenu, key: "k")
         addCommand("Watched Folders…", "Folders", to: fileMenu)
+        addCommand("Inspect Font Files…", "Font Health", to: fileMenu)
         addCommand("Export Library Backup…", "backup", to: fileMenu)
         addCommand("Import Library Backup…", "restoreBackup", to: fileMenu)
         fileMenu.addItem(.separator())
@@ -782,7 +785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "pair": library.pairSelection(selected.isEmpty ? library.compared.map { library.chosenFace($0).name } : selected.map { library.chosenFace($0).name })
         case "backup": LibraryBackupTools.export(library)
         case "restoreBackup": LibraryBackupTools.restore(library)
-        case "Tags", "Families", "Duplicates", "Google Fonts", "Activation", "Folders": library.openTools(command)
+        case "Tags", "Families", "Duplicates", "Font Health", "Google Fonts", "Activation", "Folders": library.openTools(command)
         case "tagSelected": library.openTools("Tags")
         case "familySelected": library.openTools("Families")
         case "export": if let result = FontExporter.export(library.selectedFaces) { library.message = result }
@@ -885,7 +888,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--font-available"), Command
     testLibrary.requireCoverage = false; testLibrary.compare(fonts[0]); precondition(testLibrary.compared.count == 1)
     testLibrary.compare(fonts[0]); precondition(testLibrary.compared.isEmpty)
     AdobeBridge.selfTest()
-    do { try ProChecks.run(catalog: fonts); try StudioChecks.run(catalog: fonts) }
+    do { try ProChecks.run(catalog: fonts); try StudioChecks.run(catalog: fonts); try FontRepairChecks.run(catalog: fonts) }
     catch { fputs("Regression check failed: \(error.localizedDescription)\n", stderr); exit(1) }
     print("PASS: script probes, combined filters, missing characters, comparison and Adobe export DOM fixtures.")
     print("PASS: \(fonts.count) families, \(fonts.reduce(0) { $0 + $1.faces.count }) styles. Classification, search, filters, sorting, collections, overrides and persistence verified.")

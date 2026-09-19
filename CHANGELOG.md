@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0 — 2026-09-19
+
+- Added Font Health to Library tools plus per-family **Inspect font file…** access and a File-menu entry.
+- Added local checks for SFNT headers/directories, required tables, table bounds and overlap, checksums, name-table storage, empty/exact-duplicate/conflicting records, required IDs and PostScript-name validity.
+- Added clearly separated compatibility notes for legacy RIBBI subfamilies and version formatting, so valid modern fonts are not labeled broken.
+- Added individually selectable conservative fixes, full SFNT rebuilding, checksum adjustment, Core Text validation, repaired-copy export, and confirmed in-place repair with a side-by-side backup for writable user files.
+- Kept system fonts, multi-font TTC/OTC containers, unsupported formats and ambiguous identity repair read-only; repairs never synthesize or guess missing identity records.
+- Added deterministic regression coverage for a legacy malformed name table, proposal selection, repaired naming, duplicate removal and whole-font checksum validity.
+
 ## 0.19.0 — 2026-09-19
 
 - Replaced implicit canvas comparison state with an explicit visible-canvas set. Selecting canvases builds a stable comparison; per-canvas Hide, Only this, Show all and the checkmarked Shown menu make returning to a single canvas immediate.

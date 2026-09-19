@@ -1,4 +1,12 @@
-# Interaction checks — 0.19.0
+# Interaction checks — 0.20.0
+
+## 0.20.0 follow-up
+
+Verified **Tools → Font Health** opens as a first-class Library tool with Scan Library, Inspect file, user-font and clean-file filters, searchable results, an identity summary, severity-specific findings, proposed-fix checkboxes, Finder reveal, repaired-copy export and guarded original-repair controls. The same tool is reachable from the File menu and each family's actions.
+
+The first broad live scan exposed modern Apple/Adobe naming conventions as potential false positives. RIBBI and version-string normalization were consequently downgraded to optional compatibility notes, which do not place a font in the default needs-review list or start selected. The user-font scope was narrowed to `~/Library/Fonts`, `/Library/Fonts` and the user's explicit watched folders instead of application/SDK bundles. The refined live scan inspected 2,624 accessible user/watched files and reduced the default review list to six actual warning/error cases; a legacy Fontographer file correctly surfaced three empty name records and an incorrect glyph-table checksum. No font repair or file write was performed during live checking.
+
+Automated checks build a deliberately malformed legacy TrueType fixture with an empty trademark, duplicate full name, non-RIBBI legacy subfamily and nonstandard version record. They verify the proposed fixes, rebuilt name table, preserved typographic identity, resolved findings and the required whole-file checksum. The test suite also rebuilds a real local font in memory and requires Core Text to accept it. Repaired-copy output is always passed to Core Text before writing; in-place repair makes a sibling backup and requires explicit confirmation.
 
 ## 0.19.0 follow-up
 

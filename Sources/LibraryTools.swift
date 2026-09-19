@@ -127,7 +127,7 @@ struct LibraryToolsView: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack { Text("Library tools").font(.title2); Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
-            Picker("Tool", selection: $library.toolsTab) { ForEach(["Tags", "Families", "Duplicates", "Google Fonts", "Activation", "Folders"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
+            Picker("Tool", selection: $library.toolsTab) { ForEach(["Tags", "Families", "Duplicates", "Font Health", "Google Fonts", "Activation", "Folders"], id: \.self) { Text($0) } }.pickerStyle(.segmented).labelsHidden()
             Group {
                 switch library.toolsTab {
                 case "Folders": WatchedFoldersView(library: library)
@@ -135,6 +135,7 @@ struct LibraryToolsView: View {
                 case "Duplicates": DuplicateView(library: library)
                 case "Google Fonts": GoogleFontsView(library: library)
                 case "Activation": ActivationView(library: library)
+                case "Font Health": FontHealthView(library: library)
                 default: TagEditorView(library: library)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
